@@ -602,4 +602,3 @@ class UserBase(BaseModel):
         return v
 
 
-'''Hello!! Good Morning'''
