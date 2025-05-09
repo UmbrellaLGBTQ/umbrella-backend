@@ -600,3 +600,6 @@ class UserBase(BaseModel):
         if not re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
             raise ValueError('Phone number must be in E.164 format with exactly 10 digits after country code (e.g., +12345678901)')
         return v
+
+
+'''Hello!! Good Morning'''
