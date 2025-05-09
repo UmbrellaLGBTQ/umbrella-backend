@@ -1,0 +1,151 @@
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from datetime import datetime
+from typing import Optional
+
+from . import models, schemas, auth
+
+def get_user_by_id(db: Session, user_id: int):
+    """Get user by ID"""
+    return db.query(models.User).filter(models.User.id == user_id).first()
+
+def get_user_by_username(db: Session, username: str):
+    """Get user by username"""
+    return db.query(models.User).filter(models.User.username == username).first()
+
+def get_user_by_email(db: Session, email: str):
+    """Get user by email"""
+    if not email:
+        return None
+    return db.query(models.User).filter(models.User.email == email).first()
+
+def get_user_by_phone(db: Session, phone_number: str):
+    """Get user by phone number"""
+    return db.query(models.User).filter(models.User.phone_number == phone_number).first()
+
+def get_user_by_login_id(db: Session, login_id: str):
+    """Get user by login ID (username, email, or phone)"""
+    return db.query(models.User).filter(
+        or_(
+            models.User.username == login_id,
+            models.User.email == login_id,
+            models.User.phone_number == login_id
+        )
+    ).order_by(models.User.last_login_at.desc().nullslast()).first()
+
+def get_user_by_oauth_id(db: Session, provider: str, oauth_id: str):
+    """Get user by OAuth provider ID"""
+    if provider == "google":
+        return db.query(models.User).filter(models.User.google_id == oauth_id).first()
+    elif provider == "apple":
+        return db.query(models.User).filter(models.User.apple_id == oauth_id).first()
+    return None
+
+def create_user(db: Session, user_data: schemas.UserCreateRequest, hashed_password: str):
+    """Create a new user"""
+    db_user = models.User(
+        username=user_data.username,
+        first_name=user_data.first_name,
+        last_name=user_data.last_name,
+        email=user_data.email,
+        phone_number=user_data.phone_number,
+        password_hash=hashed_password,
+        date_of_birth=user_data.date_of_birth,
+        gender=user_data.gender,
+        sexuality=user_data.sexuality,
+        theme=user_data.theme,
+        profile_picture_url=user_data.profile_picture_url
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+def create_oauth_user(
+    db: Session, 
+    email: str, 
+    provider: str, 
+    provider_id: str, 
+    first_name: str = None, 
+    last_name: str = None
+):
+    """Create a new user from OAuth login (partial profile)"""
+    db_user = models.User(
+        email=email,
+        first_name=first_name or "",
+        last_name=last_name or "",
+        # Set temporary values for required fields
+        username=f"{provider}_{provider_id}",  # Will be updated later
+        phone_number=f"+00000000000",  # Will be updated later
+        password_hash="",  # OAuth users don't need passwords
+        date_of_birth=datetime.now().date(),  # Will be updated later
+        gender=models.Gender.PREFER_NOT_TO_SAY,  # Will be updated later
+        sexuality=models.Sexuality.PREFER_NOT_TO_SAY,  # Will be updated later
+        theme=models.Theme.LIGHT,  # Default theme
+    )
+    
+    # Set the appropriate OAuth ID
+    if provider == "google":
+        db_user.google_id = provider_id
+    elif provider == "apple":
+        db_user.apple_id = provider_id
+        
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+def update_user_login(db: Session, user_id: int, login_type: models.LoginType):
+    """Update user's last login information"""
+    db_user = get_user_by_id(db, user_id)
+    if db_user:
+        db_user.last_login_type = login_type
+        db_user.last_login_at = datetime.utcnow()
+        db.commit()
+        db.refresh(db_user)
+    return db_user
+
+def update_user_profile(db: Session, user_id: int, user_data: dict):
+    """Update user profile"""
+    db_user = get_user_by_id(db, user_id)
+    if not db_user:
+        return None
+        
+    for key, value in user_data.items():
+        setattr(db_user, key, value)
+        
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+
+def update_password(db: Session, user_id: int, new_password_hash: str):
+    """Update user password"""
+    db_user = get_user_by_id(db, user_id)
+    if db_user:
+        db_user.password_hash = new_password_hash
+        db.commit()
+        db.refresh(db_user)
+    return db_user
+
+def update_user_theme(db: Session, user_id: int, theme: models.Theme):
+    """Update user theme preference"""
+    db_user = get_user_by_id(db, user_id)
+    if db_user:
+        db_user.theme = theme
+        db.commit()
+        db.refresh(db_user)
+    return db_user
+
+def check_username_exists(db: Session, username: str) -> bool:
+    """Check if username already exists"""
+    return db.query(models.User).filter(models.User.username == username).first() is not None
+
+def check_email_exists(db: Session, email: str) -> bool:
+    """Check if email already exists"""
+    if not email:
+        return False
+    return db.query(models.User).filter(models.User.email == email).first() is not None
+
+def check_phone_exists(db: Session, phone_number: str) -> bool:
+    """Check if phone number already exists"""
+    return db.query(models.User).filter(models.User.phone_number == phone_number).first() is not None
