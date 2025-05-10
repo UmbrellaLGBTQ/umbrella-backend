@@ -102,6 +102,5 @@ def complete_signup(
     # Create user
     user = crud.create_user(db, user_data, hashed_password)
     
-    print("Generated OTP:", new_otp.code, "Expires at:", new_otp.expires_at)
 
     return user

@@ -530,10 +530,6 @@ class ThemeUpdateRequest(BaseModel):
         return v
 
 # ---- Response Models ---- #
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
 class UserResponse(BaseModel):
     id: int
     username: str
@@ -558,44 +554,18 @@ class OTPResponse(BaseModel):
 class MessageResponse(BaseModel):
     message: str
 
-class UserBase(BaseModel):
-    username: str
-    first_name: str
-    last_name: str
-    email: Optional[EmailStr] = None
-    phone_number: str
-    date_of_birth: date
-    gender: Gender
-    sexuality: Sexuality
-    theme: Theme
+    
+class Token(BaseModel):
+    """Schema for token response"""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
 
-    @validator('first_name', 'last_name')
-    def validate_names(cls, v):
-        if not re.match(r'^[A-Za-z]+$', v):
-            raise ValueError('Name must contain only alphabetic characters')
-        return v
-
-    @validator('username')
-    def validate_username(cls, v):
-        if not v.islower():
-            raise ValueError('Username must be lowercase')
-        if not re.match(r'^[a-z0-9_\.]+$', v):
-            raise ValueError('Username must contain only lowercase letters, numbers, underscores (_) or dots (.)')
-        if len(v) < 3 or len(v) > 20:
-            raise ValueError('Username must be between 3 and 20 characters')
-        return v
-
-    @validator('date_of_birth')
-    def validate_age(cls, v):
-        today = date.today()
-        age = today.year - v.year - ((today.month, today.day) < (v.month, v.day))
-        if age < 13:
-            raise ValueError('User must be at least 13 years old')
-        return v
-        
-    @validator('phone_number')
-    def validate_phone_number(cls, v):
-        # Validate E.164 format with exactly 10 digits after country code
-        if not re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
-            raise ValueError('Phone number must be in E.164 format with exactly 10 digits after country code (e.g., +12345678901)')
-        return v
+class RefreshRequest(BaseModel):
+    """Schema for refresh token request"""
+    refresh_token: str
+    
+class RefreshTokenInDB(BaseModel):
+    """Schema for a stored refresh token"""
+    token: str
+    expires_at: datetime

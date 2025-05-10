@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
 from .database import Base, engine
+from app import models
 
 # Create tables on startup (dev only)
 Base.metadata.create_all(bind=engine)
