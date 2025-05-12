@@ -1,13 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from datetime import timedelta
 
 from .. import schemas, crud, auth, models
 from ..database import get_db
-from ..auth import verify_password, create_access_token, create_refresh_token
-from ..models import User
-from ..schemas import Token
 
 router = APIRouter(
     prefix="/login",
@@ -15,20 +11,20 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+
 @router.post("/", response_model=schemas.Token)
 def login_user(
     login_request: schemas.LoginRequest,
     db: Session = Depends(get_db)
 ):
     """Log in using username or phone number"""
-    user = crud.get_user_by_login_id(db, login_request.login_id, login_request.password)
 
-def login_user(login_request: schemas.LoginRequest, db: Session = Depends(get_db)):
-    """Log in using username, email, or phone number"""
-    
-    # Find user by login ID (username, email, or phone)
-    user = crud.get_user_by_login_id(db, login_request.login_id)
-    
+    # Normalize phone number if used
+    login_id = login_request.login_id.replace(" ", "")
+
+    # Fetch most appropriate user based on logic (most recent if phone is used)
+    user = crud.get_user_by_login_id(db, login_id, login_request.password)
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -36,7 +32,6 @@ def login_user(login_request: schemas.LoginRequest, db: Session = Depends(get_db
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Check if theme selected
     if not user.theme:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -44,16 +39,12 @@ def login_user(login_request: schemas.LoginRequest, db: Session = Depends(get_db
         )
 
     # Determine login type
-    login_type = models.LoginType.PHONE if user.phone_number == login_request.login_id else models.LoginType.PHONE
+    login_type = models.LoginType.PHONE if user.phone_number == login_id else models.LoginType.PHONE
 
-    # Update login timestamp
+    # Update login metadata
     crud.update_user_login(db, user.id, login_type)
 
-    # Create access token
-    token = auth.create_access_token(data={"sub": str(user.id)})
-    return {"access_token": token, "token_type": "bearer"}
-    
-    # Create access token and refresh token
+    # Generate tokens
     access_token = auth.create_access_token(data={"sub": str(user.id)})
     refresh_token = auth.create_refresh_token(data={"sub": str(user.id)}, db=db)
 
@@ -63,45 +54,43 @@ def login_user(login_request: schemas.LoginRequest, db: Session = Depends(get_db
         "token_type": "bearer"
     }
 
+
 @router.post("/token", response_model=schemas.Token)
 def login_for_access_token(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    """OAuth2 compatible token login, get an access token for future requests"""
-    
-    # Find user by login ID (username, email, or phone)
-    user = crud.get_user_by_login_id(db, form_data.username)
-    
-    if not user or not auth.verify_password(form_data.password, user.password_hash):
+    """OAuth2 password login (for Swagger UI login button)"""
+    login_id = form_data.username.replace(" ", "")
+    user = crud.get_user_by_login_id(db, login_id, form_data.password)
+
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    # Check if user has theme selected
+
     if not user.theme:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Theme selection required before login"
         )
-    
-    # Determine login type and update
-    login_type = models.LoginType.PHONE  # Default
+
+    login_type = models.LoginType.PHONE
     crud.update_user_login(db, user.id, login_type)
-    
-    # Create access token and refresh token
-    access_token = auth.create_access_token({"sub": str(user.id)})
-    refresh_token = auth.create_refresh_token({"sub": str(user.id)}, db=db)
-    
+
+    access_token = auth.create_access_token(data={"sub": str(user.id)})
+    refresh_token = auth.create_refresh_token(data={"sub": str(user.id)}, db=db)
+
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer"
     }
 
+
 @router.get("/me", response_model=schemas.UserResponse)
 def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
-    """Get current authenticated user profile"""
+    """Returns the authenticated user's profile"""
     return current_user
