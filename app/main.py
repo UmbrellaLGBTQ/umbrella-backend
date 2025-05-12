@@ -7,11 +7,14 @@ from .database import engine
 from .database import Base, engine
 from app import models
 
+
+
+
 # Create tables on startup (dev only)
 Base.metadata.create_all(bind=engine)
 
 # Import routes
-from .routes import signup, login, oauth, forget_password, theme
+from .routes import signup, login, oauth, forget_password, theme, country_code
 
 # Load environment variables
 load_dotenv()
@@ -22,6 +25,7 @@ app = FastAPI(
     description="Authentication and profile management API",
     version="1.0.0"
 )
+ 
 
 # Add CORS middleware
 app.add_middleware(
@@ -33,6 +37,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(country_code.router)  
 app.include_router(signup.router)
 app.include_router(login.router)
 app.include_router(oauth.router)

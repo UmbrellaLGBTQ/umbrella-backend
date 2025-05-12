@@ -47,8 +47,9 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     first_name = Column(String)
     last_name = Column(String)
-    # email = Column(String, index=True, nullable=True)
-    phone_number = Column(String, index=True)
+    # email = Column(String, unique=True, nullable=True)
+    country_code = Column(String, nullable=False)
+    phone_number = Column(String, unique=True, index=True, nullable=False)
     password_hash = Column(String)
     date_of_birth = Column(Date)
     gender = Column(Enum(Gender))
@@ -72,7 +73,8 @@ class OTP(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    phone_number = Column(String, nullable=True)
+    country_code = Column(String, nullable=False)
+    phone_number = Column(String, unique=True, index=True, nullable=False)
     # email = Column(String, nullable=True)
     code = Column(String, nullable=False)
     purpose = Column(String, nullable=False)  # signup, login, password_reset

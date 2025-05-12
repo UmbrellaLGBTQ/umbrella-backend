@@ -29,9 +29,10 @@ def request_signup_otp(
     
     # Create new OTP
     new_otp = otp.create_otp(
-        db=db,
-        purpose="signup",
-        phone_number=request.phone_number
+    db=db,
+    purpose="signup",
+    phone_number=request.phone_number,
+    country_code=request.country_code
     )
     
     return {

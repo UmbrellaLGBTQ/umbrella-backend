@@ -79,14 +79,16 @@ def create_user(db: Session, user_data: schemas.UserCreateRequest, hashed_passwo
         username=user_data.username,
         first_name=user_data.first_name,
         last_name=user_data.last_name,
+        country_code=user_data.country_code,  
         # email=user_data.email,
         phone_number=user_data.phone_number.replace(" ", ""),
         password_hash=hashed_password,
         date_of_birth=user_data.date_of_birth,
         gender=user_data.gender,
         sexuality=user_data.sexuality,
+        profile_picture_url=user_data.profile_picture_url,
         theme=user_data.theme,
-        profile_picture_url=user_data.profile_picture_url
+        is_active=True
     )
     db.add(db_user)
     db.commit()

@@ -108,8 +108,8 @@ class CountryPhoneData:
     
     def get_country_data(self, country_code: str) -> Dict:
         """Get validation data for a specific country code"""
-        return self.COUNTRY_PHONE_DATA.get(country_code, self.COUNTRY_PHONE_DATA["default"])
-    
+        return self.COUNTRY_PHONE_DATA.get(str(country_code), self.COUNTRY_PHONE_DATA["default"])
+
     def get_all_country_codes(self) -> List[Dict]:
         """Get all available country codes for dropdown population"""
         return [
@@ -124,7 +124,7 @@ class CountryPhoneData:
     
     def format_phone_number(self, country_code: str, phone_number: str) -> str:
         """Format a phone number according to the country's display format"""
-        country_data = self.get_country_data(country_code)
+        country_data = self.get_country_data(str(country_code))
         display_format = country_data.get("display")
         
         # If no format is provided, return with basic formatting
@@ -189,7 +189,7 @@ class PhoneValidator:
             country_code, local_number = self.parse_phone_number(phone)
             
             # Get country-specific validation rules
-            country_data = self.country_data.get_country_data(country_code)
+            country_data = self.country_data.get_country_data(str(country_code))
             
             # Check length constraints
             min_length = country_data.get("min_length", 6)
@@ -272,28 +272,32 @@ class UserModel(BaseModel):
 
 # ---- Base Models ---- #
 class OTPBase(BaseModel):
-    phone_number: Optional[str] = None
+    country_code: str
+    phone_number: str
     # email: Optional[EmailStr] = None
-    
+
     @validator('phone_number')
-    def validate_phone(cls, v):
-        if v is None:
-            return v
-        
+    def validate_phone(cls, v, values):
+        country_code = str(values.get('country_code'))
+        if not country_code:
+            raise ValueError('country_code is required for phone validation')
+
         validator = PhoneValidator()
-        result = validator.validate_phone(v)
-        
+        full_phone = f"+{country_code}{v}"
+        result = validator.validate_phone(full_phone)
+
         if not result.is_valid:
             raise ValueError(result.message)
-        
-        # Return the formatted number (or just return v if you want to keep the original)
-        return result.formatted_number
+
+        return v
+
 
 class UserBase(BaseModel):
     username: str
     first_name: str
     last_name: str
     # email: Optional[EmailStr] = None
+    country_code: str
     phone_number: str
     date_of_birth: date
     gender: Gender
@@ -325,60 +329,65 @@ class UserBase(BaseModel):
         return v
         
     @validator('phone_number')
-    def validate_phone(cls, v):
-        if v is None:
-            return v
-        
+    def validate_phone(cls, v, values):
+        country_code = str(values.get('country_code'))
+        if not country_code:
+            raise ValueError('country_code is required for phone validation')
+
         validator = PhoneValidator()
-        result = validator.validate_phone(v)
-        
+        full_phone = f"+{country_code}{v}"
+        result = validator.validate_phone(full_phone)
+
         if not result.is_valid:
             raise ValueError(result.message)
-        
-        # Return the formatted number (or just return v if you want to keep the original)
-        return result.formatted_number
+
+        return v
 
 # ---- Request Models ---- #
 class PhoneVerificationRequest(BaseModel):
+    country_code: str
     phone_number: str
-    
+
     @validator('phone_number')
-    def validate_phone(cls, v):
-        if v is None:
-            return v
-        
+    def validate_phone(cls, v, values):
+        country_code = str(values.get('country_code'))
+        if not country_code:
+            raise ValueError("country_code is required to validate phone_number")
+
+        full_phone = f"+{country_code}{v}"
         validator = PhoneValidator()
-        result = validator.validate_phone(v)
-        
+        result = validator.validate_phone(full_phone)
         if not result.is_valid:
             raise ValueError(result.message)
-        
-        # Return the formatted number (or just return v if you want to keep the original)
-        return result.formatted_number
+        return v
+
 
 class OTPVerificationRequest(BaseModel):
+    country_code: str
     phone_number: str
     otp_code: str
-    
+
     @validator('phone_number')
-    def validate_phone(cls, v):
-        if v is None:
-            return v
-        
+    def validate_phone(cls, v, values):
+        country_code = str(values.get('country_code'))
+        if not country_code:
+            raise ValueError('country_code is required for phone validation')
+
         validator = PhoneValidator()
-        result = validator.validate_phone(v)
-        
+        full_phone = f"+{country_code}{v}"
+        result = validator.validate_phone(full_phone)
+
         if not result.is_valid:
             raise ValueError(result.message)
-        
-        # Return the formatted number (or just return v if you want to keep the original)
-        return result.formatted_number.replace(" ", "")
-    
+
+        return v, result.formatted_number.replace(" ", "")
+
     @validator('otp_code')
     def validate_otp(cls, v):
         if not re.match(r'^\d{6}$', v):
             raise ValueError('OTP must be a 6-digit number')
         return v
+
 
 class UserCreateRequest(UserBase):
     password: str
@@ -410,6 +419,7 @@ class UserCreateRequest(UserBase):
         if 'password' in values and v != values['password']:
             raise ValueError('Passwords do not match')
         return v
+
 
 class LoginRequest(BaseModel):
     login_id: str  # Can be phone, email, or username
@@ -536,6 +546,7 @@ class UserResponse(BaseModel):
     first_name: str
     last_name: str
     # email: Optional[str] = None
+    country_code: str
     phone_number: str
     date_of_birth: date
     gender: Gender
@@ -546,6 +557,10 @@ class UserResponse(BaseModel):
     
     class Config:
         orm_mode = True
+        
+    @property
+    def formatted_phone_number(self):
+        return f"+{self.country_code}{self.phone_number}"
 
 class OTPResponse(BaseModel):
     message: str
@@ -611,3 +626,8 @@ class RefreshTokenInDB(BaseModel):
     """Schema for a stored refresh token"""
     token: str
     expires_at: datetime
+    
+class CountryCodeResponse(BaseModel):
+    code: str
+    name: str
+    example: Optional[str]
