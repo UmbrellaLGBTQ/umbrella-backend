@@ -270,7 +270,7 @@ class PhoneValidator:
 # Example Pydantic model with phone validation
 class UserModel(BaseModel):
     name: str
-    email: str
+    # email: str
     phone_number: Optional[str] = None
     
     @validator('phone_number')
@@ -291,7 +291,7 @@ class UserModel(BaseModel):
 class OTPBase(BaseModel):
     country_code: str
     phone_number: str
-    email: Optional[EmailStr] = None
+    # email: Optional[EmailStr] = None
 
     @validator('phone_number')
     def validate_phone(cls, v, values):
@@ -313,7 +313,7 @@ class UserBase(BaseModel):
     username: str
     first_name: str
     last_name: str
-    email: Optional[EmailStr] = None
+    # email: Optional[EmailStr] = None
     country_code: str
     phone_number: str
     date_of_birth: date
@@ -397,7 +397,7 @@ class OTPVerificationRequest(BaseModel):
         if not result.is_valid:
             raise ValueError(result.message)
 
-        return v
+        return v, result.formatted_number.replace(" ", "")
 
     @validator('otp_code')
     def validate_otp(cls, v):
@@ -447,13 +447,13 @@ class LoginRequest(BaseModel):
         # Phone number format validation (E.164 with exactly 10 digits after country code)
         if re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
             return v  # Valid phone number
-        # Email validation
-        elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
-            return v  # Valid email
+        # # Email validation
+        # elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
+        #     return v  # Valid email
         # Username validation (lowercase, alphanumeric, and only _ or . as special chars)
         elif re.match(r'^[a-z0-9_\.]+$', v):
             return v  # Valid username
-        raise ValueError('login_id must be a valid phone number (E.164 format), email, or username (lowercase with only _ or . as special characters)')
+        raise ValueError('login_id must be a valid phone number (E.164 format) or username (lowercase with only _ or . as special characters)')
     
     @validator('password')
     def validate_password(cls, v):
@@ -495,13 +495,13 @@ class ForgotPasswordRequest(BaseModel):
         # Phone number format validation (E.164 with exactly 10 digits after country code)
         if re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
             return v  # Valid phone number
-        # Email validation
-        elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
-            return v  # Valid email
+        # # Email validation
+        # elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
+        #     return v  # Valid email
         # Username validation (lowercase, alphanumeric, and only _ or . as special chars)
         elif re.match(r'^[a-z0-9_\.]+$', v):
             return v  # Valid username
-        raise ValueError('login_id must be a valid phone number (E.164 format), email, or username (lowercase with only _ or . as special characters)')
+        raise ValueError('login_id must be a valid phone number (E.164 format) or username (lowercase with only _ or . as special characters)')
 
 class ResetPasswordRequest(BaseModel):
     login_id: str
@@ -514,13 +514,13 @@ class ResetPasswordRequest(BaseModel):
         # Phone number format validation (E.164 with exactly 10 digits after country code)
         if re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
             return v  # Valid phone number
-        # Email validation
-        elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
-            return v  # Valid email
+        # # Email validation
+        # elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
+        #     return v  # Valid email
         # Username validation (lowercase, alphanumeric, and only _ or . as special chars)
         elif re.match(r'^[a-z0-9_\.]+$', v):
             return v  # Valid username
-        raise ValueError('login_id must be a valid phone number (E.164 format), email, or username (lowercase with only _ or . as special characters)')
+        raise ValueError('login_id must be a valid phone number (E.164 format) or username (lowercase with only _ or . as special characters)')
     
     @validator('otp_code')
     def validate_otp(cls, v):
@@ -563,7 +563,7 @@ class UserResponse(BaseModel):
     username: str
     first_name: str
     last_name: str
-    email: Optional[str] = None
+    # email: Optional[str] = None
     country_code: str
     phone_number: str
     date_of_birth: date
@@ -587,6 +587,48 @@ class OTPResponse(BaseModel):
 class MessageResponse(BaseModel):
     message: str
 
+class UserBase(BaseModel):
+    username: str
+    first_name: str
+    last_name: str
+    # email: Optional[EmailStr] = None
+    phone_number: str
+    date_of_birth: date
+    gender: Gender
+    sexuality: Sexuality
+    theme: Theme
+    profile_picture_url: Optional[str] = None
+
+    @validator('first_name', 'last_name')
+    def validate_names(cls, v):
+        if not re.match(r'^[A-Za-z]+$', v):
+            raise ValueError('Name must contain only alphabetic characters')
+        return v
+
+    @validator('username')
+    def validate_username(cls, v):
+        if not v.islower():
+            raise ValueError('Username must be lowercase')
+        if not re.match(r'^[a-z0-9_\.]+$', v):
+            raise ValueError('Username must contain only lowercase letters, numbers, underscores (_) or dots (.)')
+        if len(v) < 3 or len(v) > 20:
+            raise ValueError('Username must be between 3 and 20 characters')
+        return v
+
+    @validator('date_of_birth')
+    def validate_age(cls, v):
+        today = date.today()
+        age = today.year - v.year - ((today.month, today.day) < (v.month, v.day))
+        if age < 13:
+            raise ValueError('User must be at least 13 years old')
+        return v
+        
+    @validator('phone_number')
+    def validate_phone_number(cls, v):
+        # Validate E.164 format with exactly 10 digits after country code
+        if not re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
+            raise ValueError('Phone number must be in E.164 format with exactly 10 digits after country code (e.g., +12345678901)')
+        return v
     
 class Token(BaseModel):
     """Schema for token response"""

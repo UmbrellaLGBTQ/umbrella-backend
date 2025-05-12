@@ -15,12 +15,12 @@ def validate_phone_number(phone: str) -> bool:
         return False
     return bool(re.match(r'^\+[1-9]\d{1,14}$', phone))
 
-def validate_email(email: str) -> bool:
-    """Validate email format"""
-    if not email:
-        return False
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return bool(re.match(pattern, email))
+# def validate_email(email: str) -> bool:
+#     """Validate email format"""
+#     if not email:
+#         return False
+#     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+#     return bool(re.match(pattern, email))
 
 def calculate_age(birth_date: date) -> int:
     """Calculate age from date of birth"""
@@ -43,7 +43,7 @@ def simulate_otp_delivery(method: str, destination: str, otp_code: str, purpose:
     if method == 'phone':
         message = f"Your verification code {purpose_text} is: {otp_code}"
         logger.info(f"[WHATSAPP SIMULATION] To: {destination}, Message: {message}")
-    elif method == 'email':
-        subject = f"Your verification code {purpose_text}"
-        message = f"Your verification code is: {otp_code}\nThis code will expire in 5 minutes."
-        logger.info(f"[EMAIL SIMULATION] To: {destination}, Subject: {subject}, Message: {message}")
+    # elif method == 'email':
+    #     subject = f"Your verification code {purpose_text}"
+    #     message = f"Your verification code is: {otp_code}\nThis code will expire in 5 minutes."
+    #     logger.info(f"[EMAIL SIMULATION] To: {destination}, Subject: {subject}, Message: {message}")

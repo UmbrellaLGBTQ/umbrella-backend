@@ -2,6 +2,8 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
+from .models import Base
+from .database import engine
 from .database import Base, engine
 from app import models
 
@@ -55,5 +57,3 @@ def read_root():
 def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
-
-# test test 

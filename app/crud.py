@@ -13,25 +13,57 @@ def get_user_by_username(db: Session, username: str):
     """Get user by username"""
     return db.query(models.User).filter(models.User.username == username).first()
 
-def get_user_by_email(db: Session, email: str):
-    """Get user by email"""
-    if not email:
-        return None
-    return db.query(models.User).filter(models.User.email == email).first()
+# def get_user_by_email(db: Session, email: str):
+#     """Get user by email"""
+#     if not email:
+#         return None
+#     return db.query(models.User).filter(models.User.email == email).first()
 
 def get_user_by_phone(db: Session, phone_number: str):
     """Get user by phone number"""
     return db.query(models.User).filter(models.User.phone_number == phone_number).first()
 
-def get_user_by_login_id(db: Session, login_id: str):
-    """Get user by login ID (username, email, or phone)"""
-    return db.query(models.User).filter(
+def normalize_phone(phone: str) -> str:
+    return phone.replace(" ", "") if phone else phone
+
+def get_user_by_login_id(db: Session, login_id: str, password: str = None):
+    from .auth import verify_password
+    from datetime import datetime
+    import logging
+
+    logging.basicConfig(level=logging.DEBUG)
+    logger = logging.getLogger("login")
+
+    normalized_login = normalize_phone(login_id)
+
+    users = db.query(models.User).filter(
         or_(
             models.User.username == login_id,
-            models.User.email == login_id,
-            models.User.phone_number == login_id
+            models.User.phone_number.like(f"%{normalized_login[-10:]}")  # last 10 digits match
         )
-    ).order_by(models.User.last_login_at.desc().nullslast()).first()
+    ).all()
+
+    logger.debug(f"[LOGIN] Found {len(users)} users for login_id={login_id}")
+
+    # Check for username match first
+    for user in users:
+        if user.username == login_id:
+            if verify_password(password, user.password_hash):
+                return user
+            return None
+
+    # Match phone with cleaned digits
+    matching_users = []
+    for user in users:
+        if normalize_phone(user.phone_number) == normalized_login and verify_password(password, user.password_hash):
+            matching_users.append(user)
+
+    if not matching_users:
+        return None
+
+    matching_users.sort(key=lambda u: u.last_login_at or datetime.min, reverse=True)
+    return matching_users[0]
+
 
 def get_user_by_oauth_id(db: Session, provider: str, oauth_id: str):
     """Get user by OAuth provider ID"""
@@ -47,9 +79,9 @@ def create_user(db: Session, user_data: schemas.UserCreateRequest, hashed_passwo
         username=user_data.username,
         first_name=user_data.first_name,
         last_name=user_data.last_name,
-        email=user_data.email,
         country_code=user_data.country_code,  
-        phone_number=user_data.phone_number,
+        # email=user_data.email,
+        phone_number=user_data.phone_number.replace(" ", ""),
         password_hash=hashed_password,
         date_of_birth=user_data.date_of_birth,
         gender=user_data.gender,
@@ -65,7 +97,7 @@ def create_user(db: Session, user_data: schemas.UserCreateRequest, hashed_passwo
 
 def create_oauth_user(
     db: Session, 
-    email: str, 
+    # email: str, 
     provider: str, 
     provider_id: str, 
     first_name: str = None, 
@@ -73,7 +105,7 @@ def create_oauth_user(
 ):
     """Create a new user from OAuth login (partial profile)"""
     db_user = models.User(
-        email=email,
+        # email=email,
         first_name=first_name or "",
         last_name=last_name or "",
         # Set temporary values for required fields
@@ -142,15 +174,10 @@ def check_username_exists(db: Session, username: str) -> bool:
     """Check if username already exists"""
     return db.query(models.User).filter(models.User.username == username).first() is not None
 
-def check_email_exists(db: Session, email: str) -> bool:
-    """Check if email already exists"""
-    if not email:
-        return False
-    return db.query(models.User).filter(models.User.email == email).first() is not None
-
 def check_phone_exists(db: Session, phone_number: str) -> bool:
     """Check if phone number already exists"""
     return db.query(models.User).filter(models.User.phone_number == phone_number).first() is not None
+
 
 from .models import RefreshToken
 from datetime import datetime, timedelta

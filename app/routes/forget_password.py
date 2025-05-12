@@ -32,9 +32,9 @@ def forgot_password(
     if user.phone_number:
         contact_method = "phone_number"
         contact_value = user.phone_number
-    elif user.email:
-        contact_method = "email"
-        contact_value = user.email
+    # elif user.email:
+    #     contact_method = "email"
+    #     contact_value = user.email
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
