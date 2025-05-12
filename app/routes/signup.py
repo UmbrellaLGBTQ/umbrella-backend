@@ -68,22 +68,20 @@ def complete_signup(
     db: Session = Depends(get_db)
 ):
     """Complete user profile after OTP verification"""
+
     # Check if username is taken
     if crud.check_username_exists(db, user_data.username):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already taken"
         )
-    
-    # Updated query: fetch only the latest verified OTP
-    query = db.query(models.OTP).filter(
-        models.OTP.phone_number == user_data.phone_number,
+
+    # Find the latest verified OTP that hasn't expired
+    verified_otp = db.query(models.OTP).filter(
         models.OTP.purpose == "signup",
         models.OTP.is_verified == True,
         models.OTP.expires_at > datetime.utcnow()
-    ).order_by(models.OTP.created_at.desc())
-
-    verified_otp = query.first()
+    ).order_by(models.OTP.created_at.desc()).first()
 
     if not verified_otp:
         raise HTTPException(
@@ -95,14 +93,16 @@ def complete_signup(
     db.delete(verified_otp)
     db.commit()
 
-    
     # Hash the password
     hashed_password = auth.get_password_hash(user_data.password)
+
+    user_dict = user_data.dict(exclude={"confirm_password"})  # ✅ exclude confirm_password
+    user_dict["phone_number"] = verified_otp.phone_number
+    user_dict["country_code"] = verified_otp.country_code
+
+    user = crud.create_user(db, user_dict, hashed_password)  # ✅ pass dict directly
     
-    # Create user
-    user = crud.create_user(db, user_data, hashed_password)
-    
-    # ✅ Invalidate OTPs after successful signup
-    otp.invalidate_previous_otps(db, purpose="signup", phone_number=user_data.phone_number)
+    # ✅ Invalidate other unused OTPs for the same phone
+    otp.invalidate_previous_otps(db, purpose="signup", phone_number=verified_otp.phone_number)
 
     return user

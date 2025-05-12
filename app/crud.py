@@ -73,27 +73,30 @@ def get_user_by_oauth_id(db: Session, provider: str, oauth_id: str):
         return db.query(models.User).filter(models.User.apple_id == oauth_id).first()
     return None
 
-def create_user(db: Session, user_data: schemas.UserCreateRequest, hashed_password: str):
+from sqlalchemy.orm import Session
+from . import models
+
+def create_user(db: Session, user_data: dict, hashed_password: str):
     """Create a new user"""
     db_user = models.User(
-        username=user_data.username,
-        first_name=user_data.first_name,
-        last_name=user_data.last_name,
-        country_code=user_data.country_code,  
-        # email=user_data.email,
-        phone_number=user_data.phone_number.replace(" ", ""),
+        username=user_data["username"],
+        first_name=user_data["first_name"],
+        last_name=user_data["last_name"],
+        country_code=user_data["country_code"],
+        phone_number=user_data["phone_number"].replace(" ", ""),
         password_hash=hashed_password,
-        date_of_birth=user_data.date_of_birth,
-        gender=user_data.gender,
-        sexuality=user_data.sexuality,
-        profile_picture_url=user_data.profile_picture_url,
-        theme=user_data.theme,
+        date_of_birth=user_data["date_of_birth"],
+        gender=user_data["gender"],
+        sexuality=user_data["sexuality"],
+        profile_picture_url=user_data.get("profile_picture_url"),
+        theme=user_data["theme"],
         is_active=True
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
     return db_user
+
 
 def create_oauth_user(
     db: Session, 

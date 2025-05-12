@@ -406,15 +406,40 @@ class OTPVerificationRequest(BaseModel):
         return v
 
 
-class UserCreateRequest(UserBase):
+class UserCreateRequest(BaseModel):
+    username: str
+    first_name: str
+    last_name: str
+    date_of_birth: date
+    gender: Gender
+    sexuality: Sexuality
+    theme: Theme
     password: str
     confirm_password: str
     profile_picture_url: Optional[str] = None
 
-    @validator('profile_picture_url')
-    def validate_profile_url(cls, v):
-        if v is not None and not re.match(r'^https?://.+\..+', v):
-            raise ValueError('Invalid URL format for profile picture')
+    @validator('first_name', 'last_name')
+    def validate_names(cls, v):
+        if not re.match(r'^[A-Za-z]+$', v):
+            raise ValueError('Name must contain only alphabetic characters')
+        return v
+
+    @validator('username')
+    def validate_username(cls, v):
+        if not v.islower():
+            raise ValueError('Username must be lowercase')
+        if not re.match(r'^[a-z0-9_\.]+$', v):
+            raise ValueError('Username must contain only lowercase letters, numbers, underscores (_) or dots (.)')
+        if len(v) < 3 or len(v) > 20:
+            raise ValueError('Username must be between 3 and 20 characters')
+        return v
+
+    @validator('date_of_birth')
+    def validate_age(cls, v):
+        today = date.today()
+        age = today.year - v.year - ((today.month, today.day) < (v.month, v.day))
+        if age < 13:
+            raise ValueError('User must be at least 13 years old')
         return v
 
     @validator('password')
@@ -436,6 +461,13 @@ class UserCreateRequest(UserBase):
         if 'password' in values and v != values['password']:
             raise ValueError('Passwords do not match')
         return v
+
+    @validator('profile_picture_url')
+    def validate_profile_url(cls, v):
+        if v is not None and not re.match(r'^https?://.+\..+', v):
+            raise ValueError('Invalid URL format for profile picture')
+        return v
+
 
 
 class LoginRequest(BaseModel):
