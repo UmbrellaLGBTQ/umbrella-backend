@@ -98,8 +98,25 @@ class CountryPhoneData:
         "61": {"country": "Australia", "pattern": r"^[1-9]\d{8}$", "min_length": 9, "max_length": 9},
         "62": {"country": "Indonesia", "pattern": r"^[1-9]\d{8,11}$", "min_length": 9, "max_length": 12},
         "65": {"country": "Singapore", "pattern": r"^[3-9]\d{7}$", "min_length": 8, "max_length": 8},
-        
-        # Add more country codes as needed
+        "66": {"country": "Thailand", "pattern": r"^[1-9]\d{8,9}$", "min_length": 9, "max_length": 10},
+        "880": {"country": "Bangladesh", "pattern": r"^1[3-9]\d{8}$", "min_length": 10, "max_length": 10},
+        "92": {"country": "Pakistan", "pattern": r"^3[0-9]{9}$", "min_length": 10, "max_length": 10},
+
+        # South America
+        "54": {"country": "Argentina", "pattern": r"^[1-9]\d{9,10}$", "min_length": 10, "max_length": 11},
+        "55": {"country": "Brazil", "pattern": r"^[1-9]\d{9,10}$", "min_length": 10, "max_length": 11},
+
+        # Middle East
+        "90": {"country": "Turkey", "pattern": r"^5\d{9}$", "min_length": 10, "max_length": 10},
+        "971": {"country": "UAE", "pattern": r"^5[0-9]{8}$", "min_length": 9, "max_length": 9},
+        "972": {"country": "Israel", "pattern": r"^5[0-9]{8}$", "min_length": 9, "max_length": 9},
+        "966": {"country": "Saudi Arabia", "pattern": r"^5\d{8}$", "min_length": 9, "max_length": 9},
+
+        # Africa
+        "20": {"country": "Egypt", "pattern": r"^1[0-9]{9}$", "min_length": 10, "max_length": 10},
+        "27": {"country": "South Africa", "pattern": r"^[1-9]\d{8}$", "min_length": 9, "max_length": 9},
+        "234": {"country": "Nigeria", "pattern": r"^[7-9]\d{9}$", "min_length": 10, "max_length": 10}
+
     }
     
     def __init__(self):
@@ -471,6 +488,7 @@ class OAuthLoginRequest(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     login_id: str  # Can be phone, email, or username
+    country_code: str
     
     @validator('login_id')
     def detect_login_format(cls, v):

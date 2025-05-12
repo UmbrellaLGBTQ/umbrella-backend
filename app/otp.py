@@ -29,35 +29,35 @@ def create_otp(
     email: str = None
 ):
     """Create and save an OTP to the database"""
-    # Generate OTP code
+    
+    if phone_number and not country_code:
+        raise ValueError("country_code must be provided when phone_number is used.")
+
     otp_code = generate_otp()
-    
-    # Calculate expiry time
     expires_at = datetime.utcnow() + timedelta(minutes=OTP_EXPIRY_MINUTES)
-    
-    # Create OTP record
+
     db_otp = OTP(
-    user_id=user_id,
-    country_code=country_code,  # ✅ Save it here
-    phone_number=phone_number,
-    email=email,
-    code=otp_code,
-    purpose=purpose,
-    expires_at=expires_at,
-    attempts=0
+        user_id=user_id,
+        country_code=country_code,
+        phone_number=phone_number,
+        email=email,
+        code=otp_code,
+        purpose=purpose,
+        expires_at=expires_at,
+        attempts=0
     )
-    
+
     db.add(db_otp)
     db.commit()
     db.refresh(db_otp)
-    
-    # Simulate sending OTP
+
     if phone_number:
         simulate_otp_delivery('phone', phone_number, otp_code, purpose)
     elif email:
         simulate_otp_delivery('email', email, otp_code, purpose)
-        
+
     return db_otp
+
 
 def verify_otp(
     db: Session, 
