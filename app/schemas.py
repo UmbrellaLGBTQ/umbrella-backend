@@ -380,24 +380,15 @@ class PhoneVerificationRequest(BaseModel):
 
 
 class OTPVerificationRequest(BaseModel):
-    country_code: str
     phone_number: str
     otp_code: str
 
-    @validator('phone_number')
-    def validate_phone(cls, v, values):
-        country_code = str(values.get('country_code'))
-        if not country_code:
-            raise ValueError('country_code is required for phone validation')
+    @validator('otp_code')
+    def validate_otp(cls, v):
+        if not re.match(r'^\d{6}$', v):
+            raise ValueError('OTP must be a 6-digit number')
+        return v
 
-        validator = PhoneValidator()
-        full_phone = f"+{country_code}{v}"
-        result = validator.validate_phone(full_phone)
-
-        if not result.is_valid:
-            raise ValueError(result.message)
-
-        return v, result.formatted_number.replace(" ", "")
 
     @validator('otp_code')
     def validate_otp(cls, v):
