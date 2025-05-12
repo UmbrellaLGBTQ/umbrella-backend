@@ -530,10 +530,6 @@ class ThemeUpdateRequest(BaseModel):
         return v
 
 # ---- Response Models ---- #
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
 class UserResponse(BaseModel):
     id: int
     username: str
@@ -600,3 +596,18 @@ class UserBase(BaseModel):
         if not re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
             raise ValueError('Phone number must be in E.164 format with exactly 10 digits after country code (e.g., +12345678901)')
         return v
+    
+class Token(BaseModel):
+    """Schema for token response"""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+class RefreshRequest(BaseModel):
+    """Schema for refresh token request"""
+    refresh_token: str
+    
+class RefreshTokenInDB(BaseModel):
+    """Schema for a stored refresh token"""
+    token: str
+    expires_at: datetime

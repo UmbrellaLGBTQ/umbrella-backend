@@ -4,6 +4,9 @@ import os
 from dotenv import load_dotenv
 from .models import Base
 from .database import engine
+from .database import Base, engine
+from app import models
+
 # Create tables on startup (dev only)
 Base.metadata.create_all(bind=engine)
 

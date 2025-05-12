@@ -5,6 +5,9 @@ from datetime import timedelta
 
 from .. import schemas, crud, auth, models
 from ..database import get_db
+from ..auth import verify_password, create_access_token, create_refresh_token
+from ..models import User
+from ..schemas import Token
 
 router = APIRouter(
     prefix="/login",
@@ -20,6 +23,12 @@ def login_user(
     """Log in using username or phone number"""
     user = crud.get_user_by_login_id(db, login_request.login_id, login_request.password)
 
+def login_user(login_request: schemas.LoginRequest, db: Session = Depends(get_db)):
+    """Log in using username, email, or phone number"""
+    
+    # Find user by login ID (username, email, or phone)
+    user = crud.get_user_by_login_id(db, login_request.login_id)
+    
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -43,6 +52,16 @@ def login_user(
     # Create access token
     token = auth.create_access_token(data={"sub": str(user.id)})
     return {"access_token": token, "token_type": "bearer"}
+    
+    # Create access token and refresh token
+    access_token = auth.create_access_token(data={"sub": str(user.id)})
+    refresh_token = auth.create_refresh_token(data={"sub": str(user.id)}, db=db)
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }
 
 @router.post("/token", response_model=schemas.Token)
 def login_for_access_token(
@@ -50,7 +69,8 @@ def login_for_access_token(
     db: Session = Depends(get_db)
 ):
     """OAuth2 compatible token login, get an access token for future requests"""
-    # The username field from OAuth2PasswordRequestForm can contain username, email, or phone
+    
+    # Find user by login ID (username, email, or phone)
     user = crud.get_user_by_login_id(db, form_data.username)
     
     if not user or not auth.verify_password(form_data.password, user.password_hash):
@@ -71,13 +91,13 @@ def login_for_access_token(
     login_type = models.LoginType.PHONE  # Default
     crud.update_user_login(db, user.id, login_type)
     
-    # Create access token
-    access_token = auth.create_access_token(
-        data={"sub": str(user.id)}
-    )
+    # Create access token and refresh token
+    access_token = auth.create_access_token({"sub": str(user.id)})
+    refresh_token = auth.create_refresh_token({"sub": str(user.id)}, db=db)
     
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer"
     }
 

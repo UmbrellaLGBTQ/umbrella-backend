@@ -175,3 +175,28 @@ def check_username_exists(db: Session, username: str) -> bool:
 def check_phone_exists(db: Session, phone_number: str) -> bool:
     """Check if phone number already exists"""
     return db.query(models.User).filter(models.User.phone_number == phone_number).first() is not None
+
+
+from .models import RefreshToken
+from datetime import datetime, timedelta
+
+def create_refresh_token(db: Session, user_id: int, token: str, expires_in_minutes: int):
+    expires_at = datetime.utcnow() + timedelta(minutes=expires_in_minutes)
+    db_token = RefreshToken(
+        user_id=user_id,
+        token=token,
+        expires_at=expires_at
+    )
+    db.add(db_token)
+    db.commit()
+    db.refresh(db_token)
+    return db_token
+
+def get_refresh_token(db: Session, token: str):
+    return db.query(RefreshToken).filter(RefreshToken.token == token, RefreshToken.is_valid == True).first()
+
+def revoke_refresh_token(db: Session, token: str):
+    db_token = db.query(RefreshToken).filter(RefreshToken.token == token).first()
+    if db_token:
+        db_token.is_valid = False
+        db.commit()

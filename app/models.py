@@ -6,6 +6,9 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import enum
 from .database import Base
+from datetime import datetime
+from sqlalchemy.orm import backref
+
 
 class Gender(enum.Enum):
     MALE = "male"
@@ -80,3 +83,17 @@ class OTP(Base):
     
     # Relationships
     user = relationship("User", back_populates="otps")
+    
+class RefreshToken(Base):
+    """Refresh token storage"""
+    __tablename__ = "refresh_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    token = Column(String, unique=True, nullable=False)
+    is_valid = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+
+    # Relationship with backref instead of back_populates
+    user = relationship("User", backref=backref("refresh_tokens", lazy="dynamic"))
