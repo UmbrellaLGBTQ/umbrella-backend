@@ -18,11 +18,11 @@ def request_signup_otp(
 ):
     """Request OTP for signup verification"""
     # Check if phone number is already registered
-    if crud.check_phone_exists(db, request.phone_number):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Phone number is already registered"
-        )
+    # if crud.check_phone_exists(db, request.phone_number):
+    #     raise HTTPException(
+    #         status_code=status.HTTP_400_BAD_REQUEST,
+    #         detail="Phone number is already registered"
+    #     )
     
     # Invalidate any previous OTPs
     otp.invalidate_previous_otps(db, "signup", phone_number=request.phone_number)
@@ -94,6 +94,7 @@ def complete_signup(
     # ✅ Invalidate this OTP after use
     db.delete(verified_otp)
     db.commit()
+
     
     # Hash the password
     hashed_password = auth.get_password_hash(user_data.password)

@@ -174,9 +174,9 @@ def check_username_exists(db: Session, username: str) -> bool:
     """Check if username already exists"""
     return db.query(models.User).filter(models.User.username == username).first() is not None
 
-def check_phone_exists(db: Session, phone_number: str) -> bool:
-    """Check if phone number already exists"""
-    return db.query(models.User).filter(models.User.phone_number == phone_number).first() is not None
+# def check_phone_exists(db: Session, phone_number: str) -> bool:
+#     """Check if phone number already exists"""
+#     return db.query(models.User).filter(models.User.phone_number == phone_number).first() is not None
 
 
 from .models import RefreshToken

@@ -37,21 +37,6 @@ def create_otp(
     country_code: str = None
 ):
     """Create and save an OTP to the database"""
-<<<<<<< HEAD
-    
-    if phone_number and not country_code:
-        raise ValueError("country_code must be provided when phone_number is used.")
-
-    otp_code = generate_otp()
-    expires_at = datetime.utcnow() + timedelta(minutes=OTP_EXPIRY_MINUTES)
-
-    db_otp = OTP(
-<<<<<<< HEAD
-        user_id=user_id,
-        country_code=country_code,
-        phone_number=phone_number,
-        email=email,
-=======
     # Invalidate previous OTPs
     delete_previous_otps(db, country_code, phone_number, purpose)
 
@@ -66,50 +51,21 @@ def create_otp(
         user_id=user_id,
         country_code=country_code,
         phone_number=phone_number,
->>>>>>> f6f4ce1c55bf662e7afcd30593fecd4b727d9a52
         code=otp_code,
         purpose=purpose,
         expires_at=expires_at,
         attempts=0
-<<<<<<< HEAD
-=======
-    user_id=user_id,
-    country_code=country_code,  # ✅ Save it here
-    phone_number=phone_number,
-    # email=email,
-    code=otp_code,
-    purpose=purpose,
-    expires_at=expires_at,
-    attempts=0
->>>>>>> acd5347a47410be4c9648f82fab708dae09eef5f
-=======
->>>>>>> f6f4ce1c55bf662e7afcd30593fecd4b727d9a52
     )
 
     db.add(db_otp)
     db.commit()
     db.refresh(db_otp)
 
-<<<<<<< HEAD
-    if phone_number:
-        simulate_otp_delivery('phone', phone_number, otp_code, purpose)
-<<<<<<< HEAD
-    elif email:
-        simulate_otp_delivery('email', email, otp_code, purpose)
-
-=======
-    # elif email:
-    #     simulate_otp_delivery('email', email, otp_code, purpose)
-        
->>>>>>> acd5347a47410be4c9648f82fab708dae09eef5f
-=======
     # Simulate sending OTP
     if phone_number:
         simulate_otp_delivery('phone', phone_number, otp_code, purpose)
 
->>>>>>> f6f4ce1c55bf662e7afcd30593fecd4b727d9a52
     return db_otp
-
 
 def verify_otp(
     db: Session,

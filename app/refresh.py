@@ -1,13 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-<<<<<<< HEAD
 from . import crud, schemas
 from datetime import datetime
-
-=======
-from datetime import datetime
->>>>>>> acd5347a47410be4c9648f82fab708dae09eef5f
 from .database import get_db
 from .models import User
 from .auth import verify_refresh_token, create_access_token, create_refresh_token
