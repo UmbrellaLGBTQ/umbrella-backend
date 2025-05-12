@@ -74,7 +74,7 @@ class OTP(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     country_code = Column(String, nullable=False)
-    phone_number = Column(String, unique=True, index=True, nullable=False)
+    phone_number = Column(String, index=True, nullable=False)
     # email = Column(String, nullable=True)
     code = Column(String, nullable=False)
     purpose = Column(String, nullable=False)  # signup, login, password_reset
