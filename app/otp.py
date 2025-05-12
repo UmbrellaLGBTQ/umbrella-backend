@@ -25,6 +25,7 @@ def create_otp(
     purpose: str, 
     user_id: int = None, 
     phone_number: str = None, 
+    country_code: str = None,
     email: str = None
 ):
     """Create and save an OTP to the database"""
@@ -36,13 +37,14 @@ def create_otp(
     
     # Create OTP record
     db_otp = OTP(
-        user_id=user_id,
-        phone_number=phone_number,
-        email=email,
-        code=otp_code,
-        purpose=purpose,
-        expires_at=expires_at,
-        attempts=0
+    user_id=user_id,
+    country_code=country_code,  # ✅ Save it here
+    phone_number=phone_number,
+    email=email,
+    code=otp_code,
+    purpose=purpose,
+    expires_at=expires_at,
+    attempts=0
     )
     
     db.add(db_otp)
