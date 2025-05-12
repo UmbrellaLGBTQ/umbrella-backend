@@ -25,7 +25,7 @@ def create_otp(
     purpose: str, 
     user_id: int = None, 
     phone_number: str = None, 
-    email: str = None
+    # email: str = None
 ):
     """Create and save an OTP to the database"""
     # Generate OTP code
@@ -38,7 +38,7 @@ def create_otp(
     db_otp = OTP(
         user_id=user_id,
         phone_number=phone_number,
-        email=email,
+        # email=email,
         code=otp_code,
         purpose=purpose,
         expires_at=expires_at,
@@ -52,8 +52,8 @@ def create_otp(
     # Simulate sending OTP
     if phone_number:
         simulate_otp_delivery('phone', phone_number, otp_code, purpose)
-    elif email:
-        simulate_otp_delivery('email', email, otp_code, purpose)
+    # elif email:
+    #     simulate_otp_delivery('email', email, otp_code, purpose)
         
     return db_otp
 
@@ -63,7 +63,7 @@ def verify_otp(
     purpose: str, 
     user_id: int = None, 
     phone_number: str = None, 
-    email: str = None
+    # email: str = None
 ):
     """Verify an OTP code"""
     # Find the most recent active OTP
@@ -77,8 +77,8 @@ def verify_otp(
         query = query.filter(OTP.user_id == user_id)
     if phone_number:
         query = query.filter(OTP.phone_number == phone_number)
-    if email:
-        query = query.filter(OTP.email == email)
+    # if email:
+    #     query = query.filter(OTP.email == email)
         
     db_otp = query.order_by(OTP.created_at.desc()).first()
     
@@ -109,7 +109,7 @@ def invalidate_previous_otps(
     purpose: str, 
     user_id: int = None, 
     phone_number: str = None, 
-    email: str = None
+    # email: str = None
 ):
     """Invalidate all previous OTPs for the same purpose"""
     query = db.query(OTP).filter(
@@ -121,8 +121,8 @@ def invalidate_previous_otps(
         query = query.filter(OTP.user_id == user_id)
     if phone_number:
         query = query.filter(OTP.phone_number == phone_number)
-    if email:
-        query = query.filter(OTP.email == email)
+    # if email:
+    #     query = query.filter(OTP.email == email)
         
     # Update all matching OTPs to be expired
     query.update({"expires_at": datetime.utcnow() - timedelta(minutes=1)})

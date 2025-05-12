@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import Optional
-
+from datetime import datetime
 from .. import schemas, crud, auth, otp, models
 from ..database import get_db
 
@@ -74,27 +74,25 @@ def complete_signup(
             detail="Username already taken"
         )
     
-    # Check if email is taken (if provided)
-    if user_data.email and crud.check_email_exists(db, user_data.email):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
-        )
-    
-    # Check if there's a verified OTP for this phone number
+    # Updated query: fetch only the latest verified OTP
     query = db.query(models.OTP).filter(
         models.OTP.phone_number == user_data.phone_number,
         models.OTP.purpose == "signup",
-        models.OTP.is_verified == True
+        models.OTP.is_verified == True,
+        models.OTP.expires_at > datetime.utcnow()
     ).order_by(models.OTP.created_at.desc())
-    
+
     verified_otp = query.first()
-    
+
     if not verified_otp:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Phone verification required before profile completion"
         )
+
+    # ✅ Invalidate this OTP after use
+    db.delete(verified_otp)
+    db.commit()
     
     # Hash the password
     hashed_password = auth.get_password_hash(user_data.password)
@@ -102,6 +100,7 @@ def complete_signup(
     # Create user
     user = crud.create_user(db, user_data, hashed_password)
     
-    print("Generated OTP:", new_otp.code, "Expires at:", new_otp.expires_at)
+    # ✅ Invalidate OTPs after successful signup
+    otp.invalidate_previous_otps(db, purpose="signup", phone_number=user_data.phone_number)
 
     return user

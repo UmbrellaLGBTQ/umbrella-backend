@@ -2,8 +2,8 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
-from .database import Base, engine
-
+from .models import Base
+from .database import engine
 # Create tables on startup (dev only)
 Base.metadata.create_all(bind=engine)
 
@@ -49,5 +49,3 @@ def read_root():
 def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
-
-# test test 

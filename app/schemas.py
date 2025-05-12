@@ -253,7 +253,7 @@ class PhoneValidator:
 # Example Pydantic model with phone validation
 class UserModel(BaseModel):
     name: str
-    email: str
+    # email: str
     phone_number: Optional[str] = None
     
     @validator('phone_number')
@@ -273,7 +273,7 @@ class UserModel(BaseModel):
 # ---- Base Models ---- #
 class OTPBase(BaseModel):
     phone_number: Optional[str] = None
-    email: Optional[EmailStr] = None
+    # email: Optional[EmailStr] = None
     
     @validator('phone_number')
     def validate_phone(cls, v):
@@ -293,7 +293,7 @@ class UserBase(BaseModel):
     username: str
     first_name: str
     last_name: str
-    email: Optional[EmailStr] = None
+    # email: Optional[EmailStr] = None
     phone_number: str
     date_of_birth: date
     gender: Gender
@@ -372,7 +372,7 @@ class OTPVerificationRequest(BaseModel):
             raise ValueError(result.message)
         
         # Return the formatted number (or just return v if you want to keep the original)
-        return result.formatted_number
+        return result.formatted_number.replace(" ", "")
     
     @validator('otp_code')
     def validate_otp(cls, v):
@@ -420,13 +420,13 @@ class LoginRequest(BaseModel):
         # Phone number format validation (E.164 with exactly 10 digits after country code)
         if re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
             return v  # Valid phone number
-        # Email validation
-        elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
-            return v  # Valid email
+        # # Email validation
+        # elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
+        #     return v  # Valid email
         # Username validation (lowercase, alphanumeric, and only _ or . as special chars)
         elif re.match(r'^[a-z0-9_\.]+$', v):
             return v  # Valid username
-        raise ValueError('login_id must be a valid phone number (E.164 format), email, or username (lowercase with only _ or . as special characters)')
+        raise ValueError('login_id must be a valid phone number (E.164 format) or username (lowercase with only _ or . as special characters)')
     
     @validator('password')
     def validate_password(cls, v):
@@ -467,13 +467,13 @@ class ForgotPasswordRequest(BaseModel):
         # Phone number format validation (E.164 with exactly 10 digits after country code)
         if re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
             return v  # Valid phone number
-        # Email validation
-        elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
-            return v  # Valid email
+        # # Email validation
+        # elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
+        #     return v  # Valid email
         # Username validation (lowercase, alphanumeric, and only _ or . as special chars)
         elif re.match(r'^[a-z0-9_\.]+$', v):
             return v  # Valid username
-        raise ValueError('login_id must be a valid phone number (E.164 format), email, or username (lowercase with only _ or . as special characters)')
+        raise ValueError('login_id must be a valid phone number (E.164 format) or username (lowercase with only _ or . as special characters)')
 
 class ResetPasswordRequest(BaseModel):
     login_id: str
@@ -486,13 +486,13 @@ class ResetPasswordRequest(BaseModel):
         # Phone number format validation (E.164 with exactly 10 digits after country code)
         if re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
             return v  # Valid phone number
-        # Email validation
-        elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
-            return v  # Valid email
+        # # Email validation
+        # elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
+        #     return v  # Valid email
         # Username validation (lowercase, alphanumeric, and only _ or . as special chars)
         elif re.match(r'^[a-z0-9_\.]+$', v):
             return v  # Valid username
-        raise ValueError('login_id must be a valid phone number (E.164 format), email, or username (lowercase with only _ or . as special characters)')
+        raise ValueError('login_id must be a valid phone number (E.164 format) or username (lowercase with only _ or . as special characters)')
     
     @validator('otp_code')
     def validate_otp(cls, v):
@@ -539,7 +539,7 @@ class UserResponse(BaseModel):
     username: str
     first_name: str
     last_name: str
-    email: Optional[str] = None
+    # email: Optional[str] = None
     phone_number: str
     date_of_birth: date
     gender: Gender
@@ -562,12 +562,13 @@ class UserBase(BaseModel):
     username: str
     first_name: str
     last_name: str
-    email: Optional[EmailStr] = None
+    # email: Optional[EmailStr] = None
     phone_number: str
     date_of_birth: date
     gender: Gender
     sexuality: Sexuality
     theme: Theme
+    profile_picture_url: Optional[str] = None
 
     @validator('first_name', 'last_name')
     def validate_names(cls, v):
