@@ -91,7 +91,8 @@ def create_user(db: Session, user_data: dict, hashed_password: str):
         username=user_data["username"],
         display_name=display_name,
         profile_image_url=user_data.get("profile_picture_url"),
-        bio=None
+        bio=None,
+        location=user_data.get("location")  # <-- added support for location
     )
 
     db.add(db_user)
@@ -155,17 +156,8 @@ def update_user_profile(db: Session, profile_update: schemas.UserProfileUpdate, 
     if not profile:
         return None
 
-    if profile_update.username is not None:
-        profile.username = profile_update.username
-
-    if profile_update.display_name is not None:
-        profile.display_name = profile_update.display_name
-
-    if profile_update.bio is not None:
-        profile.bio = profile_update.bio
-
-    if profile_update.profile_image_url is not None:
-        profile.profile_image_url = profile_update.profile_image_url
+    for field, value in profile_update.dict(exclude_unset=True).items():
+        setattr(profile, field, value)
 
     db.commit()
     db.refresh(profile)

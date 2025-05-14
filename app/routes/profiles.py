@@ -20,10 +20,6 @@ async def get_user_profile_by_username(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Get user profile by username.
-    Shows full profile only if user is self or connected.
-    """
     db_user = crud.get_user_by_username(db, username)
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -32,27 +28,27 @@ async def get_user_profile_by_username(
     if not db_profile:
         raise HTTPException(status_code=404, detail="Profile not found")
 
+    # Compose base fields including required `age`
     base_data = {
         "id": db_profile.id,
         "username": db_profile.username,
         "display_name": db_profile.display_name,
         "profile_image_url": db_profile.profile_image_url,
-        "age": db_user.age or 0,
+        "age": db_user.age,  # ← this ensures `age` is present
+        "location": db_profile.location
     }
 
-    # Return full profile if self or connected
     if db_user.id == current_user.id or crud.check_users_connected(db, current_user.id, db_user.id):
-        return UserProfileResponse(
+        return schemas.UserProfileResponse(
             **base_data,
             bio=db_profile.bio,
             user_id=db_profile.user_id,
             created_at=db_profile.created_at,
-            updated_at=db_profile.updated_at
+            updated_at=db_profile.updated_at,
         )
 
-    # Else return public profile
-    return UserProfilePublicResponse(**base_data)
-
+    # Return public profile
+    return schemas.UserProfilePublicResponse(**base_data)
 
 @router.put("/by-username/{username}", response_model=UserProfileResponse)
 async def update_user_profile_by_username(
@@ -85,7 +81,20 @@ async def update_user_profile_by_username(
         )
         return crud.create_user_profile(db, create_data, db_user.id)
 
-    return crud.update_user_profile(db, profile_update, db_user.id)
+    updated_profile = crud.update_user_profile(db, profile_update, db_user.id)
+    return schemas.UserProfileResponse(
+        id=updated_profile.id,
+        username=updated_profile.username,
+        display_name=updated_profile.display_name,
+        profile_image_url=updated_profile.profile_image_url,
+        age=db_user.age,
+        location=updated_profile.location,
+        bio=updated_profile.bio,
+        user_id=updated_profile.user_id,
+        created_at=updated_profile.created_at,
+        updated_at=updated_profile.updated_at,
+    )
+
 
 
 @router.post("/by-username/{username}/image", response_model=UserProfileResponse)
@@ -117,7 +126,20 @@ async def upload_profile_image_by_username(
             pass  # Log if needed
 
     image_url = await upload_image_to_s3(file, db_user.id)
-    return crud.update_profile_image_url(db, db_user.id, image_url)
+    updated_profile = crud.update_profile_image_url(db, db_user.id, image_url)
+    return schemas.UserProfileResponse(
+        id=updated_profile.id,
+        username=updated_profile.username,
+        display_name=updated_profile.display_name,
+        profile_image_url=updated_profile.profile_image_url,
+        age=db_user.age,
+        location=updated_profile.location,
+        bio=updated_profile.bio,
+        user_id=updated_profile.user_id,
+        created_at=updated_profile.created_at,
+        updated_at=updated_profile.updated_at,
+    )
+
 
 
 @router.delete("/by-username/{username}/image", response_model=UserProfileResponse)
@@ -145,4 +167,18 @@ async def delete_profile_image_by_username(
         raise HTTPException(status_code=400, detail="No profile image to delete")
 
     delete_image_from_s3(db_profile.profile_image_url)
-    return crud.update_profile_image_url(db, db_user.id, None)
+    updated_profile = crud.update_profile_image_url(db, db_user.id, None)
+    return schemas.UserProfileResponse(
+        id=updated_profile.id,
+        username=updated_profile.username,
+        display_name=updated_profile.display_name,
+        profile_image_url=updated_profile.profile_image_url,
+        age=db_user.age,
+        location=updated_profile.location,
+        bio=updated_profile.bio,
+        user_id=updated_profile.user_id,
+        created_at=updated_profile.created_at,
+        updated_at=updated_profile.updated_at,
+    )
+
+

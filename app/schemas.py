@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, validator, HttpUrl
+from pydantic import BaseModel, EmailStr, Field, validator, HttpUrl, ConfigDict
 from typing import Dict, Optional, List, Union, Tuple
 from datetime import date, datetime
 import re
@@ -698,38 +698,35 @@ class UserProfileBase(BaseModel):
     class Config:
         orm_mode = True
 
-class UserProfileCreate(UserProfileBase):
+class UserProfileCreate(BaseModel):
     username: str
-    display_name: str = Field(..., max_length=50)
+    display_name: str
+    bio: Optional[str] = None
+    profile_image_url: Optional[str] = None
+    location: Optional[str] = None
 
-
-class UserProfileUpdate(UserProfileBase):
-    pass
-
-
-class UserProfileResponse(UserProfileBase):
-    id: int
-    user_id: int
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        orm_mode = True
+class UserProfileUpdate(BaseModel):
+    display_name: Optional[str] = None
+    bio: Optional[str] = None
+    profile_image_url: Optional[str] = None
+    location: Optional[str] = None
 
 
 class UserProfilePublicResponse(BaseModel):
     id: int
     username: str
     display_name: str
-    profile_image_url: Optional[str] = None
-    bio: Optional[str] = None
+    profile_image_url: Optional[str]
+    location: Optional[str]
+    age: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class UserProfileResponse(UserProfilePublicResponse):
+    bio: Optional[str]
     user_id: int
     created_at: datetime
     updated_at: datetime
-    age: Optional[int] = None # This is dynamically calculated
-
-    class Config:
-        from_attributes = True
 
 
 # Connection Request schemas

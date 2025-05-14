@@ -104,15 +104,14 @@ class User(Base):
 
     sent_requests = relationship("ConnectionRequest", foreign_keys="ConnectionRequest.requester_id", back_populates="requester")
     received_requests = relationship("ConnectionRequest", foreign_keys="ConnectionRequest.requestee_id", back_populates="requestee")
-    
+
     @property
-    def age(self) -> int:
-        if self.date_of_birth:
-            today = date.today()
-            return today.year - self.date_of_birth.year - (
-                (today.month, today.day) < (self.date_of_birth.month, self.date_of_birth.day)
-            )
-        return 0
+    def age(self):
+        today = date.today()
+        return today.year - self.date_of_birth.year - (
+            (today.month, today.day) < (self.date_of_birth.month, self.date_of_birth.day)
+        )
+
 
 # -------------------- OTP MODEL --------------------
 
@@ -169,6 +168,7 @@ class UserProfile(Base):
     display_name = Column(String(50), nullable=False)
     bio = Column(String(250), nullable=True)
     profile_image_url = Column(String, nullable=True)
+    location = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
