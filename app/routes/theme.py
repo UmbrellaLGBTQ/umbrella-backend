@@ -10,7 +10,7 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-@router.put("/", response_model=schemas.MessageResponse)
+@router.patch("/", response_model=schemas.MessageResponse)
 def update_theme(
     theme_data: schemas.ThemeUpdateRequest,
     current_user: models.User = Depends(auth.get_current_user),
@@ -27,9 +27,10 @@ def update_theme(
     
     return {"message": f"Theme updated to {theme_data.theme.value}"}
 
-@router.get("/", response_model=schemas.MessageResponse)
-def get_theme(
-    current_user: models.User = Depends(auth.get_current_user)
-):
-    """Get current user theme preference"""
-    return {"message": current_user.theme.value}
+
+# @router.get("/", response_model=schemas.MessageResponse)
+# def get_theme(
+#     current_user: models.User = Depends(auth.get_current_user)
+# ):
+#     """Get current user theme preference"""
+#     return {"message": current_user.theme.value}

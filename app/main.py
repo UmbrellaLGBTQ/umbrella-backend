@@ -1,12 +1,13 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
 from .models import Base
 from .database import engine
-from .database import Base, engine
+from .database import Base, engine, SessionLocal
 from app import models
-
+import uvicorn
+from .routes import profiles, connections
 
 
 
@@ -39,10 +40,12 @@ app.add_middleware(
 # Include routers
 app.include_router(country_code.router)  
 app.include_router(signup.router)
+app.include_router(theme.router)
 app.include_router(login.router)
 app.include_router(oauth.router)
 app.include_router(forget_password.router)
-app.include_router(theme.router)
+app.include_router(profiles.router)  # New profile router
+app.include_router(connections.router)  # New connections router
 
 @app.get("/")
 def read_root():

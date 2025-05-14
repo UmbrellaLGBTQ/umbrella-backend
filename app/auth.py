@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 import os
 import secrets
+import uuid
+
 
 from .database import get_db
 from .models import User
@@ -88,6 +90,17 @@ def verify_refresh_token(token: str):
         return user_id
     except JWTError:
         raise credentials_exception
+    
+def get_user_by_username(db: Session, username: str):
+    return db.query(User).filter(User.username == username).first()
+
+
+def get_user_by_email(db: Session, email: str):
+    return db.query(User).filter(User.email == email).first()
+
+
+def get_user_by_id(db: Session, user_id: uuid.UUID):
+    return db.query(User).filter(User.id == user_id).first()
 
 # --- Current User Handlers ---
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):

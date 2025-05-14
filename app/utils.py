@@ -1,6 +1,9 @@
-import re
 from datetime import date
 import logging
+from fastapi import UploadFile
+import magic
+import re
+from typing import List
 
 # Configure logging
 logging.basicConfig(

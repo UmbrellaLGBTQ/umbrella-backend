@@ -1,8 +1,9 @@
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, EmailStr, Field, validator, HttpUrl
 from typing import Dict, Optional, List, Union, Tuple
 from datetime import date, datetime
 import re
 from .models import Gender, Sexuality, Theme, LoginType
+from enum import Enum
 
 
 class PhoneValidationResult(BaseModel):
@@ -286,6 +287,8 @@ class UserModel(BaseModel):
         
         # Return the formatted number (or just return v if you want to keep the original)
         return result.formatted_number
+    
+
 
 # ---- Base Models ---- #
 class OTPBase(BaseModel):
@@ -573,12 +576,13 @@ class ResetPasswordRequest(BaseModel):
 
 class ThemeUpdateRequest(BaseModel):
     theme: Theme
-    
+
     @validator('theme')
     def validate_theme(cls, v):
-        if v not in [Theme.Dark, Theme.Light]:
-            raise ValueError('Theme must be either "Dark" or "Light"')
+        if v not in Theme:
+            raise ValueError(f'Theme must be one of: {[t.value for t in Theme]}')
         return v
+
 
 # ---- Response Models ---- #
 class UserResponse(BaseModel):
@@ -672,3 +676,105 @@ class CountryCodeResponse(BaseModel):
     code: str
     name: str
     example: Optional[str]
+
+# UserProfile schemas
+class UserProfileBase(BaseModel):
+    username: str
+    display_name: str
+    bio: Optional[str] = Field(None, max_length=150)
+    profile_image_url: Optional[str] = None
+    age: int
+
+    @validator('username')
+    def validate_username(cls, v):
+        if not v.islower():
+            raise ValueError('Username must be lowercase')
+        if not re.match(r'^[a-z0-9_\.]+$', v):
+            raise ValueError('Username must contain only lowercase letters, numbers, underscores (_) or dots (.)')
+        if len(v) < 3 or len(v) > 20:
+            raise ValueError('Username must be between 3 and 20 characters')
+        return v
+    
+    class Config:
+        orm_mode = True
+
+class UserProfileCreate(UserProfileBase):
+    username: str
+    display_name: str = Field(..., max_length=50)
+
+
+class UserProfileUpdate(UserProfileBase):
+    pass
+
+
+class UserProfileResponse(UserProfileBase):
+    id: int
+    user_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class UserProfilePublicResponse(BaseModel):
+    id: int
+    username: str
+    display_name: str
+    profile_image_url: Optional[str] = None
+    bio: Optional[str] = None
+    user_id: int
+    created_at: datetime
+    updated_at: datetime
+    age: Optional[int] = None # This is dynamically calculated
+
+    class Config:
+        from_attributes = True
+
+
+# Connection Request schemas
+class ConnectionStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class ConnectionRequestBase(BaseModel):
+    requester_username: str
+    requestee_username: str
+
+
+class ConnectionRequestCreate(ConnectionRequestBase):
+    pass
+
+
+class ConnectionRequestUpdate(BaseModel):
+    status: ConnectionStatus
+
+
+class ConnectionRequestResponse(ConnectionRequestBase):
+    id: int
+    status: ConnectionStatus
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+# Connection schemas
+class ConnectionBase(BaseModel):
+    user_id1: int
+    user_id2: int
+
+
+class ConnectionCreate(ConnectionBase):
+    pass
+
+
+class ConnectionResponse(ConnectionBase):
+    id: int
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
