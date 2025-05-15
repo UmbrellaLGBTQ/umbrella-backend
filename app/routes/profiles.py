@@ -6,6 +6,12 @@ from ..database import get_db
 from ..auth import get_current_user
 from ..s3 import upload_image_to_s3, delete_image_from_s3
 from ..schemas import UserProfilePublicResponse, UserProfileResponse
+import uuid
+from datetime import datetime, timedelta
+import os
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")  # fallback for local dev
+
 
 router = APIRouter(
     prefix="/api/profile",
@@ -70,6 +76,7 @@ async def update_user_profile_by_username(
 
     db_profile = crud.get_user_profile(db, db_user.id)
 
+    # If no profile exists, create one
     if not db_profile:
         if not profile_update.username or not profile_update.display_name:
             raise HTTPException(status_code=400, detail="Username and display name are required")
@@ -77,11 +84,22 @@ async def update_user_profile_by_username(
             username=profile_update.username,
             display_name=profile_update.display_name,
             bio=profile_update.bio,
-            profile_image_url=profile_update.profile_image_url
+            profile_image_url=profile_update.profile_image_url,
+            location=profile_update.location
         )
         return crud.create_user_profile(db, create_data, db_user.id)
 
-    updated_profile = crud.update_user_profile(db, profile_update, db_user.id)
+    # ✅ Username change logic
+    if profile_update.username and profile_update.username != db_user.username:
+        if crud.check_username_exists(db, profile_update.username):
+            raise HTTPException(status_code=400, detail="Username already taken")
+
+    # ✅ Proceed to update profile
+    try:
+        updated_profile = crud.update_user_profile(db, profile_update, db_user.id)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+
     return schemas.UserProfileResponse(
         id=updated_profile.id,
         username=updated_profile.username,
@@ -181,4 +199,41 @@ async def delete_profile_image_by_username(
         updated_at=updated_profile.updated_at,
     )
 
+@router.post("/share-profile", response_model=schemas.SharedProfileResponse)
+def generate_profile_share_link(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    token = str(uuid.uuid4())
+    expires_at = datetime.utcnow() + timedelta(days=7)  # Optional
+
+    share_token = models.SharedProfileToken(
+        user_id=current_user.id,
+        token=token,
+        expires_at=expires_at
+    )
+    db.add(share_token)
+    db.commit()
+    db.refresh(share_token)
+
+    share_url = f"{FRONTEND_URL}/view-profile/{token}"
+    return {"token": token, "share_url": share_url}
+
+
+@router.get("/view-profile/{token}", response_model=schemas.UserProfilePublicResponse)
+def view_shared_profile(token: str, db: Session = Depends(get_db)):
+    share = db.query(models.SharedProfileToken).filter_by(token=token, is_active=True).first()
+    if not share or (share.expires_at and share.expires_at < datetime.utcnow()):
+        raise HTTPException(status_code=404, detail="Invalid or expired link")
+
+    user = db.query(models.User).filter_by(id=share.user_id).first()
+    profile = crud.get_user_profile(db, user.id)
+    return schemas.UserProfilePublicResponse(
+        id=profile.id,
+        username=profile.username,
+        display_name=profile.display_name,
+        profile_image_url=profile.profile_image_url,
+        location=profile.location,
+        age=user.age
+    )
 

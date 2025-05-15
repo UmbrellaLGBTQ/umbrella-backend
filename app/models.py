@@ -9,6 +9,7 @@ import enum
 from datetime import datetime, timedelta, date
 
 from .database import Base
+import uuid
 
 # -------------------- ENUM DEFINITIONS --------------------
 
@@ -61,6 +62,11 @@ class ReportCategory(str, enum.Enum):
     FAKE_ACCOUNT = "fake_account"
     OTHER = "other"
 
+class PostType(str, enum.Enum):
+    POST = "post"
+    CLIP = "clip"
+    TAG = "tag"
+
 # -------------------- USER MODEL --------------------
 
 class User(Base):
@@ -104,6 +110,8 @@ class User(Base):
 
     sent_requests = relationship("ConnectionRequest", foreign_keys="ConnectionRequest.requester_id", back_populates="requester")
     received_requests = relationship("ConnectionRequest", foreign_keys="ConnectionRequest.requestee_id", back_populates="requestee")
+
+    posts = relationship("Post", back_populates="user")
 
     @property
     def age(self):
@@ -205,3 +213,32 @@ class Connection(Base):
     __table_args__ = (
         UniqueConstraint('user_id1', 'user_id2', name='unique_connection'),
     )
+
+# -------------------- POST MODEL --------------------
+
+class Post(Base):
+    __tablename__ = "posts"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    caption = Column(String, nullable=True)
+    media_url = Column(String, nullable=False)
+    type = Column(Enum(PostType), nullable=False)  # post, clip, tag
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="posts")
+
+# -------------------- SHARED PROFILE MODEL --------------------
+
+class SharedProfileToken(Base):
+    __tablename__ = "shared_profile_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token = Column(String, unique=True, nullable=False)
+    is_active = Column(Boolean, default=True)
+    expires_at = Column(DateTime, nullable=True)  # Optional: for expiration
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User")

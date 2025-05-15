@@ -1,8 +1,8 @@
 from pydantic import BaseModel, EmailStr, Field, validator, HttpUrl, ConfigDict
-from typing import Dict, Optional, List, Union, Tuple
+from typing import Dict, Optional, List, Union, Tuple, Literal
 from datetime import date, datetime
 import re
-from .models import Gender, Sexuality, Theme, LoginType
+from .models import Gender, Sexuality, Theme, LoginType, AccountType
 from enum import Enum
 
 
@@ -706,10 +706,23 @@ class UserProfileCreate(BaseModel):
     location: Optional[str] = None
 
 class UserProfileUpdate(BaseModel):
+    username: Optional[str] = None
     display_name: Optional[str] = None
     bio: Optional[str] = None
     profile_image_url: Optional[str] = None
     location: Optional[str] = None
+    account_type: Optional[AccountType] = None
+    
+    @validator('username')
+    def validate_username(cls, v):
+        if not v.islower():
+            raise ValueError('Username must be lowercase')
+        if not re.match(r'^[a-z0-9_\.]+$', v):
+            raise ValueError('Username must contain only lowercase letters, numbers, underscores (_) or dots (.)')
+        if len(v) < 3 or len(v) > 20:
+            raise ValueError('Username must be between 3 and 20 characters')
+        return v
+    
 
 
 class UserProfilePublicResponse(BaseModel):
@@ -719,6 +732,8 @@ class UserProfilePublicResponse(BaseModel):
     profile_image_url: Optional[str]
     location: Optional[str]
     age: Optional[int] = None
+    connection_count: int = 0
+    post_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -727,17 +742,53 @@ class UserProfileResponse(UserProfilePublicResponse):
     user_id: int
     created_at: datetime
     updated_at: datetime
+    
+class PostGridItem(BaseModel):
+    id: int
+    media_url: str
+    caption: Optional[str] = None
+    created_at: datetime
+
+class ClipGridItem(BaseModel):
+    id: int
+    media_url: str
+    duration: int  # seconds
+    created_at: datetime
+
+class TagGridItem(BaseModel):
+    id: int
+    tag_text: str
+    post_id: int
+    created_at: datetime
+    
+class PostResponse(BaseModel):
+    id: int
+    user_id: int
+    caption: Optional[str]
+    media_url: str
+    type: str  # Could use PostType if you want enum validation
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class UserGridResponse(BaseModel):
+    post_count: int
+    posts: Union[List[PostResponse], str]
+    clips: Union[List[PostResponse], str]
+    tags: Union[List[PostResponse], str]
 
 
 # Connection Request schemas
 class ConnectionStatus(str, Enum):
     PENDING = "pending"
     ACCEPTED = "accepted"
-    REJECTED = "rejected"
+    DECLINE = "decline"
 
 
 class ConnectionRequestBase(BaseModel):
-    requester_username: str
+    # requester_username: str
     requestee_username: str
 
 
@@ -746,32 +797,57 @@ class ConnectionRequestCreate(ConnectionRequestBase):
 
 
 class ConnectionRequestUpdate(BaseModel):
-    status: ConnectionStatus
+    status: Literal["accepted", "declined"]
 
 
-class ConnectionRequestResponse(ConnectionRequestBase):
+class RequesterPreview(BaseModel):
+    username: str
+    display_name: str
+    profile_image_url: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+    
+class ConnectionSuccessResponse(BaseModel):
+    message: str
+
+class ConnectionRequestResponse(BaseModel):
     id: int
+    requester: RequesterPreview
     status: ConnectionStatus
     created_at: datetime
-    updated_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
+# Preview of connected user
+class ConnectionUserPreviewResponse(BaseModel):
+    username: str
+    display_name: str
+    profile_image_url: Optional[str] = None
 
-# Connection schemas
-class ConnectionBase(BaseModel):
-    user_id1: int
-    user_id2: int
+    model_config = ConfigDict(from_attributes=True)
 
+# Connection list response for /connections/{username}
+class ConnectionListResponse(BaseModel):
+    connections: List[ConnectionUserPreviewResponse]
 
-class ConnectionCreate(ConnectionBase):
-    pass
+    model_config = ConfigDict(from_attributes=True)
 
+        
+class UserGridResponse(BaseModel):
+    post_count: int
+    # clip_count: int
+    # tag_count: int
+    posts: List[PostResponse]
+    clips: List[PostResponse]
+    tags: List[PostResponse]
+    message: Optional[str] = None
 
-class ConnectionResponse(ConnectionBase):
-    id: int
-    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+    
+from pydantic import BaseModel
 
-    class Config:
-        orm_mode = True
+class SharedProfileResponse(BaseModel):
+    token: str
+    share_url: str
+
+    model_config = ConfigDict(from_attributes=True)  # For Pydantic v2
