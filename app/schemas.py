@@ -382,8 +382,7 @@ class PhoneVerificationRequest(BaseModel):
         return v
 
 
-class OTPVerificationRequest(BaseModel):
-    phone_number: str
+class SignupOTPVerificationRequest(BaseModel):
     otp_code: str
 
     @validator('otp_code')
@@ -392,6 +391,9 @@ class OTPVerificationRequest(BaseModel):
             raise ValueError('OTP must be a 6-digit number')
         return v
 
+# For forgot password flow (phone or username)
+class PasswordOTPVerificationRequest(BaseModel):
+    otp_code: str
 
     @validator('otp_code')
     def validate_otp(cls, v):
@@ -513,63 +515,39 @@ class OAuthLoginRequest(BaseModel):
         return v.lower()
 
 class ForgotPasswordRequest(BaseModel):
-    login_id: str  # Can be phone, email, or username
-    country_code: str
-    
+    login_id: str  # Accepts phone number or username
+
     @validator('login_id')
     def detect_login_format(cls, v):
-        # Phone number format validation (E.164 with exactly 10 digits after country code)
-        if re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
-            return v  # Valid phone number
-        # # Email validation
-        # elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
-        #     return v  # Valid email
-        # Username validation (lowercase, alphanumeric, and only _ or . as special chars)
-        elif re.match(r'^[a-z0-9_\.]+$', v):
+        if v.isdigit():
+            if 6 <= len(v) <= 15:
+                return v  # Accept phone numbers of reasonable global length
+            raise ValueError("Phone number must be between 6 and 15 digits")
+        elif re.match(r'^[a-z0-9_.]{3,20}$', v):
             return v  # Valid username
-        raise ValueError('login_id must be a valid phone number (E.164 format) or username (lowercase with only _ or . as special characters)')
+        raise ValueError("login_id must be a valid phone number (digits only) or username (lowercase with _ or .)")
 
 class ResetPasswordRequest(BaseModel):
-    login_id: str
-    otp_code: str
+    username: str
     new_password: str
     confirm_password: str
-    
-    @validator('login_id')
-    def detect_login_format(cls, v):
-        # Phone number format validation (E.164 with exactly 10 digits after country code)
-        if re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
-            return v  # Valid phone number
-        # # Email validation
-        # elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
-        #     return v  # Valid email
-        # Username validation (lowercase, alphanumeric, and only _ or . as special chars)
-        elif re.match(r'^[a-z0-9_\.]+$', v):
-            return v  # Valid username
-        raise ValueError('login_id must be a valid phone number (E.164 format) or username (lowercase with only _ or . as special characters)')
-    
-    @validator('otp_code')
-    def validate_otp(cls, v):
-        if not re.match(r'^\d{6}$', v):
-            raise ValueError('OTP must be a 6-digit number')
-        return v
-    
+
     @validator('new_password')
     def validate_password(cls, v):
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters long')
         if not re.search(r'[A-Z]', v):
-            raise ValueError('Password must contain at least one uppercase letter')
+            raise ValueError('Must contain at least one uppercase letter')
         if not re.search(r'[a-z]', v):
-            raise ValueError('Password must contain at least one lowercase letter')
+            raise ValueError('Must contain at least one lowercase letter')
         if not re.search(r'\d', v):
-            raise ValueError('Password must contain at least one digit')
+            raise ValueError('Must contain at least one digit')
         if not re.search(r'[!@#$%^&*(),.?":{}|<>]', v):
-            raise ValueError('Password must contain at least one special character')
+            raise ValueError('Must contain at least one special character')
         return v
     
     @validator('confirm_password')
-    def passwords_match(cls, v, values, **kwargs):
+    def passwords_match(cls, v, values):
         if 'new_password' in values and v != values['new_password']:
             raise ValueError('Passwords do not match')
         return v
@@ -775,3 +753,7 @@ class ConnectionResponse(ConnectionBase):
 
     class Config:
         orm_mode = True
+        
+        
+class UsernameListResponse(BaseModel):
+    usernames: List[str]

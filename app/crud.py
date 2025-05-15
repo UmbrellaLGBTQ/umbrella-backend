@@ -198,3 +198,14 @@ def revoke_refresh_token(db: Session, token: str):
     if db_token:
         db_token.is_valid = False
         db.commit()
+
+def get_users_by_phone(db: Session, phone_number: str):
+    """
+    Return all users matching the exact phone number
+    (without country code, since that's stored separately).
+    """
+    normalized = phone_number.strip().replace(" ", "")
+    return db.query(models.User).filter(
+        models.User.phone_number == normalized
+    ).all()
+
