@@ -1,13 +1,13 @@
 from sqlalchemy import (
     Column, Integer, String, ForeignKey,
-    Boolean, DateTime, Date, Enum, UniqueConstraint
+    Boolean, DateTime, Date, Enum, UniqueConstraint, Text
 )
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import relationship, backref
 from sqlalchemy.sql import func
 import enum
 from datetime import datetime, timedelta, date
-
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from .database import Base
 import uuid
 
@@ -67,6 +67,28 @@ class PostType(str, enum.Enum):
     CLIP = "clip"
     TAG = "tag"
 
+# --- Chat-specific enums ---
+class MessageTypeEnum(str, enum.Enum):
+    text = "text"
+    image = "image"
+    video = "video"
+    audio = "audio"
+    document = "document"
+
+class MessageRequestStatusEnum(str, enum.Enum):
+    pending = "pending"
+    accepted = "accepted"
+    declined = "declined"
+
+class CallTypeEnum(str, enum.Enum):
+    audio = "audio"
+    video = "video"
+
+class CallStatusEnum(str, enum.Enum):
+    missed = "missed"
+    answered = "answered"
+    declined = "declined"
+    
 # -------------------- USER MODEL --------------------
 
 class User(Base):
@@ -242,3 +264,75 @@ class SharedProfileToken(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User")
+
+# -------------------- CHAT MODELS --------------------
+
+class Chat(Base):
+    __tablename__ = "chats"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    is_group = Column(Boolean, default=False)
+    name = Column(String, nullable=True)
+    image = Column(String, nullable=True)
+    creator_id = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ChatMember(Base):
+    __tablename__ = "chat_members"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    is_admin = Column(Boolean, default=False)
+    joined_at = Column(DateTime, default=datetime.utcnow)
+    is_muted = Column(Boolean, default=False)
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id"))
+    sender_id = Column(Integer, ForeignKey("users.id"))
+    message_type = Column(Enum(MessageTypeEnum), default=MessageTypeEnum.text)
+    content = Column(Text, nullable=False)
+    reply_to_id = Column(UUID(as_uuid=True), ForeignKey("messages.id"), nullable=True)
+    is_edited = Column(Boolean, default=False)
+    deleted_for = Column(JSONB, default=list)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Reaction(Base):
+    __tablename__ = "reactions"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id = Column(UUID(as_uuid=True), ForeignKey("messages.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    emoji = Column(String, nullable=False)
+
+
+class MessageRequest(Base):
+    __tablename__ = "message_requests"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sender_id = Column(Integer, ForeignKey("users.id"))
+    receiver_id = Column(Integer, ForeignKey("users.id"))
+    chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id"), nullable=True)
+    status = Column(Enum(MessageRequestStatusEnum), default=MessageRequestStatusEnum.pending)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Call(Base):
+    __tablename__ = "calls"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    initiator_id = Column(Integer, ForeignKey("users.id"))
+    chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id"))
+    type = Column(Enum(CallTypeEnum))
+    started_at = Column(DateTime, default=datetime.utcnow)
+    ended_at = Column(DateTime, nullable=True)
+    status = Column(Enum(CallStatusEnum), default=CallStatusEnum.missed)
+
+
+class CallParticipant(Base):
+    __tablename__ = "call_participants"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    call_id = Column(UUID(as_uuid=True), ForeignKey("calls.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+    joined_at = Column(DateTime, default=datetime.utcnow)
+    left_at = Column(DateTime, nullable=True)

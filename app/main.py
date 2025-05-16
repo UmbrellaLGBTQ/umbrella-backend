@@ -8,7 +8,7 @@ from .database import Base, engine, SessionLocal
 from app import models
 import uvicorn
 from .routes import profiles, connections
-from .routes import posts
+from .routes import posts, chats
 
 
 # Create tables on startup (dev only)
@@ -47,6 +47,7 @@ app.include_router(forget_password.router)
 app.include_router(profiles.router)  # New profile router
 app.include_router(connections.router)  # New connections router
 app.include_router(posts.router)
+app.include_router(chats.router)
 
 @app.get("/")
 def read_root():

@@ -1,9 +1,10 @@
-from pydantic import BaseModel, EmailStr, Field, validator, HttpUrl, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, validator, HttpUrl, ConfigDict, UUID4
 from typing import Dict, Optional, List, Union, Tuple, Literal
 from datetime import date, datetime
 import re
 from .models import Gender, Sexuality, Theme, LoginType, AccountType
 from enum import Enum
+from uuid import UUID
 
 
 class PhoneValidationResult(BaseModel):
@@ -382,8 +383,7 @@ class PhoneVerificationRequest(BaseModel):
         return v
 
 
-class OTPVerificationRequest(BaseModel):
-    phone_number: str
+class SignupOTPVerificationRequest(BaseModel):
     otp_code: str
 
     @validator('otp_code')
@@ -392,6 +392,9 @@ class OTPVerificationRequest(BaseModel):
             raise ValueError('OTP must be a 6-digit number')
         return v
 
+# For forgot password flow (phone or username)
+class PasswordOTPVerificationRequest(BaseModel):
+    otp_code: str
 
     @validator('otp_code')
     def validate_otp(cls, v):
@@ -513,63 +516,39 @@ class OAuthLoginRequest(BaseModel):
         return v.lower()
 
 class ForgotPasswordRequest(BaseModel):
-    login_id: str  # Can be phone, email, or username
-    country_code: str
-    
+    login_id: str  # Accepts phone number or username
+
     @validator('login_id')
     def detect_login_format(cls, v):
-        # Phone number format validation (E.164 with exactly 10 digits after country code)
-        if re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
-            return v  # Valid phone number
-        # # Email validation
-        # elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
-        #     return v  # Valid email
-        # Username validation (lowercase, alphanumeric, and only _ or . as special chars)
-        elif re.match(r'^[a-z0-9_\.]+$', v):
+        if v.isdigit():
+            if 6 <= len(v) <= 15:
+                return v  # Accept phone numbers of reasonable global length
+            raise ValueError("Phone number must be between 6 and 15 digits")
+        elif re.match(r'^[a-z0-9_.]{3,20}$', v):
             return v  # Valid username
-        raise ValueError('login_id must be a valid phone number (E.164 format) or username (lowercase with only _ or . as special characters)')
+        raise ValueError("login_id must be a valid phone number (digits only) or username (lowercase with _ or .)")
 
 class ResetPasswordRequest(BaseModel):
-    login_id: str
-    otp_code: str
+    username: str
     new_password: str
     confirm_password: str
-    
-    @validator('login_id')
-    def detect_login_format(cls, v):
-        # Phone number format validation (E.164 with exactly 10 digits after country code)
-        if re.match(r'^\+[1-9]\d{1,3}\d{10}$', v):
-            return v  # Valid phone number
-        # # Email validation
-        # elif re.match(r'^[\w\.-]+@[\w\.-]+\.\w+$', v):
-        #     return v  # Valid email
-        # Username validation (lowercase, alphanumeric, and only _ or . as special chars)
-        elif re.match(r'^[a-z0-9_\.]+$', v):
-            return v  # Valid username
-        raise ValueError('login_id must be a valid phone number (E.164 format) or username (lowercase with only _ or . as special characters)')
-    
-    @validator('otp_code')
-    def validate_otp(cls, v):
-        if not re.match(r'^\d{6}$', v):
-            raise ValueError('OTP must be a 6-digit number')
-        return v
-    
+
     @validator('new_password')
     def validate_password(cls, v):
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters long')
         if not re.search(r'[A-Z]', v):
-            raise ValueError('Password must contain at least one uppercase letter')
+            raise ValueError('Must contain at least one uppercase letter')
         if not re.search(r'[a-z]', v):
-            raise ValueError('Password must contain at least one lowercase letter')
+            raise ValueError('Must contain at least one lowercase letter')
         if not re.search(r'\d', v):
-            raise ValueError('Password must contain at least one digit')
+            raise ValueError('Must contain at least one digit')
         if not re.search(r'[!@#$%^&*(),.?":{}|<>]', v):
-            raise ValueError('Password must contain at least one special character')
+            raise ValueError('Must contain at least one special character')
         return v
     
     @validator('confirm_password')
-    def passwords_match(cls, v, values, **kwargs):
+    def passwords_match(cls, v, values):
         if 'new_password' in values and v != values['new_password']:
             raise ValueError('Passwords do not match')
         return v
@@ -709,7 +688,6 @@ class UserProfileUpdate(BaseModel):
     username: Optional[str] = None
     display_name: Optional[str] = None
     bio: Optional[str] = None
-    profile_image_url: Optional[str] = None
     location: Optional[str] = None
     account_type: Optional[AccountType] = None
     
@@ -851,3 +829,110 @@ class SharedProfileResponse(BaseModel):
     share_url: str
 
     model_config = ConfigDict(from_attributes=True)  # For Pydantic v2
+
+class UsernameListResponse(BaseModel):
+    usernames: List[str]
+    
+class ChatBase(BaseModel):
+    is_group: bool = False
+    name: Optional[str] = None
+    image: Optional[str] = None
+
+class ChatCreate(ChatBase):
+    participant_ids: List[int]
+
+class ChatResponse(ChatBase):
+    id: UUID
+    creator_id: int
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+class ChatMemberResponse(BaseModel):
+    id: UUID
+    user_id: int
+    chat_id: UUID
+    is_admin: bool
+    joined_at: datetime
+    is_muted: bool
+
+    class Config:
+        orm_mode = True
+
+class MessageBase(BaseModel):
+    message_type: Literal["text", "image", "video", "audio", "document"]
+    content: str
+    reply_to_id: Optional[UUID] = None
+
+class MessageCreate(MessageBase):
+    chat_id: UUID
+
+class MessageEdit(BaseModel):
+    content: str
+
+class MessageResponse(BaseModel):
+    id: UUID
+    chat_id: UUID
+    sender_id: int
+    content: str
+    message_type: str
+    is_edited: bool
+    created_at: datetime
+    reply_to_id: Optional[UUID] = None
+
+    class Config:
+        orm_mode = True
+
+class ReactionCreate(BaseModel):
+    message_id: UUID
+    emoji: str  # ❤️ 😂 😮 😢 👏 🔥
+
+class ReactionResponse(BaseModel):
+    id: UUID
+    message_id: UUID
+    user_id: int
+    emoji: str
+
+    class Config:
+        orm_mode = True
+
+class MessageRequestCreate(BaseModel):
+    receiver_id: int  # The user you are sending request to
+
+class MessageRequestResponse(BaseModel):
+    id: UUID
+    sender_id: int
+    receiver_id: int
+    status: Literal["pending", "accepted", "declined"]
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+class CallStartRequest(BaseModel):
+    chat_id: UUID
+    type: Literal["audio", "video"]
+
+class CallResponse(BaseModel):
+    id: UUID
+    initiator_id: int
+    chat_id: UUID
+    type: str
+    started_at: datetime
+    ended_at: Optional[datetime]
+    status: str
+
+    class Config:
+        orm_mode = True
+
+class CallParticipantResponse(BaseModel):
+    id: UUID
+    user_id: int
+    call_id: UUID
+    joined_at: datetime
+    left_at: Optional[datetime]
+
+    class Config:
+        orm_mode = True
+

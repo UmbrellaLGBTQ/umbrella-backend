@@ -42,24 +42,30 @@ def request_signup_otp(
 
 @router.post("/verify-otp", response_model=schemas.MessageResponse)
 def verify_signup_otp(
-    request: schemas.OTPVerificationRequest,
+    request: schemas.SignupOTPVerificationRequest,
     db: Session = Depends(get_db)
 ):
     """Verify OTP for signup process"""
-    # Verify the OTP
+    # Get latest unexpired OTP (assume phone is remembered from previous step)
+    latest_otp = db.query(models.OTP).filter(
+        models.OTP.purpose == "signup",
+        models.OTP.expires_at > datetime.utcnow()
+    ).order_by(models.OTP.created_at.desc()).first()
+
+    if not latest_otp:
+        raise HTTPException(status_code=404, detail="No OTP found")
+
+    # Verify the code
     verification = otp.verify_otp(
         db=db,
         code=request.otp_code,
         purpose="signup",
-        phone_number=request.phone_number
+        phone_number=latest_otp.phone_number
     )
-    
+
     if not verification["valid"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=verification["message"]
-        )
-    
+        raise HTTPException(status_code=400, detail=verification["message"])
+
     return {"message": "OTP verified successfully. Please complete your profile."}
 
 @router.post("/complete-profile", response_model=schemas.UserResponse)
