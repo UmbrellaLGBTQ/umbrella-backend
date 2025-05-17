@@ -115,3 +115,4 @@ def delete_image_from_s3(image_url: str) -> bool:
         raise HTTPException(status_code=500, detail=f"S3 deletion failed: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting file: {str(e)}")
+    

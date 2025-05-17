@@ -1,9 +1,10 @@
-from pydantic import BaseModel, EmailStr, Field, validator, HttpUrl, ConfigDict
-from typing import Dict, Optional, List, Union, Tuple
+from pydantic import BaseModel, EmailStr, Field, validator, HttpUrl, ConfigDict, UUID4
+from typing import Dict, Optional, List, Union, Tuple, Literal
 from datetime import date, datetime
 import re
-from .models import Gender, Sexuality, Theme, LoginType
+from .models import Gender, Sexuality, Theme, LoginType, AccountType
 from enum import Enum
+from uuid import UUID
 
 
 class PhoneValidationResult(BaseModel):
@@ -683,10 +684,22 @@ class UserProfileCreate(BaseModel):
     location: Optional[str] = None
 
 class UserProfileUpdate(BaseModel):
+    username: Optional[str] = None
     display_name: Optional[str] = None
     bio: Optional[str] = None
-    profile_image_url: Optional[str] = None
     location: Optional[str] = None
+    account_type: Optional[AccountType] = None
+    
+    @validator('username')
+    def validate_username(cls, v):
+        if not v.islower():
+            raise ValueError('Username must be lowercase')
+        if not re.match(r'^[a-z0-9_\.]+$', v):
+            raise ValueError('Username must contain only lowercase letters, numbers, underscores (_) or dots (.)')
+        if len(v) < 3 or len(v) > 20:
+            raise ValueError('Username must be between 3 and 20 characters')
+        return v
+    
 
 
 class UserProfilePublicResponse(BaseModel):
@@ -696,6 +709,8 @@ class UserProfilePublicResponse(BaseModel):
     profile_image_url: Optional[str]
     location: Optional[str]
     age: Optional[int] = None
+    connection_count: int = 0
+    post_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -704,17 +719,53 @@ class UserProfileResponse(UserProfilePublicResponse):
     user_id: int
     created_at: datetime
     updated_at: datetime
+    
+class PostGridItem(BaseModel):
+    id: int
+    media_url: str
+    caption: Optional[str] = None
+    created_at: datetime
+
+class ClipGridItem(BaseModel):
+    id: int
+    media_url: str
+    duration: int  # seconds
+    created_at: datetime
+
+class TagGridItem(BaseModel):
+    id: int
+    tag_text: str
+    post_id: int
+    created_at: datetime
+    
+class PostResponse(BaseModel):
+    id: int
+    user_id: int
+    caption: Optional[str]
+    media_url: str
+    type: str  # Could use PostType if you want enum validation
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class UserGridResponse(BaseModel):
+    post_count: int
+    posts: Union[List[PostResponse], str]
+    clips: Union[List[PostResponse], str]
+    tags: Union[List[PostResponse], str]
 
 
 # Connection Request schemas
 class ConnectionStatus(str, Enum):
     PENDING = "pending"
     ACCEPTED = "accepted"
-    REJECTED = "rejected"
+    DECLINE = "decline"
 
 
 class ConnectionRequestBase(BaseModel):
-    requester_username: str
+    # requester_username: str
     requestee_username: str
 
 
@@ -723,36 +774,164 @@ class ConnectionRequestCreate(ConnectionRequestBase):
 
 
 class ConnectionRequestUpdate(BaseModel):
-    status: ConnectionStatus
+    status: Literal["accepted", "declined"]
 
 
-class ConnectionRequestResponse(ConnectionRequestBase):
+class RequesterPreview(BaseModel):
+    username: str
+    display_name: str
+    profile_image_url: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+    
+class ConnectionSuccessResponse(BaseModel):
+    message: str
+
+class ConnectionRequestResponse(BaseModel):
     id: int
+    requester: RequesterPreview
     status: ConnectionStatus
     created_at: datetime
-    updated_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
+# Preview of connected user
+class ConnectionUserPreviewResponse(BaseModel):
+    username: str
+    display_name: str
+    profile_image_url: Optional[str] = None
 
-# Connection schemas
-class ConnectionBase(BaseModel):
-    user_id1: int
-    user_id2: int
+    model_config = ConfigDict(from_attributes=True)
 
+# Connection list response for /connections/{username}
+class ConnectionListResponse(BaseModel):
+    connections: List[ConnectionUserPreviewResponse]
 
-class ConnectionCreate(ConnectionBase):
-    pass
+    model_config = ConfigDict(from_attributes=True)
 
-
-class ConnectionResponse(ConnectionBase):
-    id: int
-    created_at: datetime
-
-    class Config:
-        orm_mode = True
         
-        
+class UserGridResponse(BaseModel):
+    post_count: int
+    # clip_count: int
+    # tag_count: int
+    posts: List[PostResponse]
+    clips: List[PostResponse]
+    tags: List[PostResponse]
+    message: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+    
+from pydantic import BaseModel
+
+class SharedProfileResponse(BaseModel):
+    token: str
+    share_url: str
+
+    model_config = ConfigDict(from_attributes=True)  # For Pydantic v2
+
 class UsernameListResponse(BaseModel):
     usernames: List[str]
+    
+class ChatBase(BaseModel):
+    is_group: bool = False
+    name: Optional[str] = None
+    image: Optional[str] = None
+
+class ChatCreate(ChatBase):
+    participant_ids: List[int]
+
+class ChatResponse(ChatBase):
+    id: UUID
+    creator_id: int
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+class ChatMemberResponse(BaseModel):
+    id: UUID
+    user_id: int
+    chat_id: UUID
+    is_admin: bool
+    joined_at: datetime
+    is_muted: bool
+
+    class Config:
+        orm_mode = True
+
+class MessageBase(BaseModel):
+    message_type: Literal["text", "image", "video", "audio", "document"]
+    content: str
+    reply_to_id: Optional[UUID] = None
+
+class MessageCreate(MessageBase):
+    chat_id: UUID
+
+class MessageEdit(BaseModel):
+    content: str
+
+class MessageResponse(BaseModel):
+    id: UUID
+    chat_id: UUID
+    sender_id: int
+    content: str
+    message_type: str
+    is_edited: bool
+    created_at: datetime
+    reply_to_id: Optional[UUID] = None
+
+    class Config:
+        orm_mode = True
+
+class ReactionCreate(BaseModel):
+    message_id: UUID
+    emoji: str  # ❤️ 😂 😮 😢 👏 🔥
+
+class ReactionResponse(BaseModel):
+    id: UUID
+    message_id: UUID
+    user_id: int
+    emoji: str
+
+    class Config:
+        orm_mode = True
+
+class MessageRequestCreate(BaseModel):
+    receiver_id: int  # The user you are sending request to
+
+class MessageRequestResponse(BaseModel):
+    id: UUID
+    sender_id: int
+    receiver_id: int
+    status: Literal["pending", "accepted", "declined"]
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+class CallStartRequest(BaseModel):
+    chat_id: UUID
+    type: Literal["audio", "video"]
+
+class CallResponse(BaseModel):
+    id: UUID
+    initiator_id: int
+    chat_id: UUID
+    type: str
+    started_at: datetime
+    ended_at: Optional[datetime]
+    status: str
+
+    class Config:
+        orm_mode = True
+
+class CallParticipantResponse(BaseModel):
+    id: UUID
+    user_id: int
+    call_id: UUID
+    joined_at: datetime
+    left_at: Optional[datetime]
+
+    class Config:
+        orm_mode = True
+
