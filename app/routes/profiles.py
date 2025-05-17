@@ -5,20 +5,18 @@ from .. import crud, models, schemas
 from ..database import get_db
 from ..auth import get_current_user
 from ..s3 import upload_image_to_s3, delete_image_from_s3
-from ..schemas import UserProfilePublicResponse, UserProfileResponse
+from ..schemas import UserProfilePublicResponse, UserProfileResponse, CountryPhoneData
 import uuid
 from datetime import datetime, timedelta
 import os
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")  # fallback for local dev
 
-
 router = APIRouter(
     prefix="/api/profile",
     tags=["profile"],
     responses={404: {"description": "Not found"}}
 )
-
 
 @router.get("/by-username/{username}", response_model=UserProfilePublicResponse)
 async def get_user_profile_by_username(
@@ -58,7 +56,6 @@ async def get_user_profile_by_username(
         "post_count": post_count
     }
 
-    # Private/full view if self or connected
     if db_user.id == current_user.id or crud.check_users_connected(db, current_user.id, db_user.id):
         return schemas.UserProfileResponse(
             **base_data,
@@ -68,9 +65,7 @@ async def get_user_profile_by_username(
             updated_at=db_profile.updated_at,
         )
 
-    # Public view
     return schemas.UserProfilePublicResponse(**base_data)
-
 
 @router.put("/by-username/{username}", response_model=UserProfileResponse)
 async def update_user_profile_by_username(
@@ -79,10 +74,6 @@ async def update_user_profile_by_username(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Update user profile by username.
-    Only the profile owner can update.
-    """
     db_user = crud.get_user_by_username(db, username)
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -92,25 +83,23 @@ async def update_user_profile_by_username(
 
     db_profile = crud.get_user_profile(db, db_user.id)
 
-    # If no profile exists, create one
     if not db_profile:
         if not profile_update.username or not profile_update.display_name:
             raise HTTPException(status_code=400, detail="Username and display name are required")
+
+        # ✅ Auto-fetch location from country code during creation only
+        country_data = CountryPhoneData()
+        location_name = country_data.get_country_data(str(db_user.country_code)).get("country", None)
+
         create_data = schemas.UserProfileCreate(
             username=profile_update.username,
             display_name=profile_update.display_name,
             bio=profile_update.bio,
             profile_image_url=profile_update.profile_image_url,
-            location=profile_update.location
+            location=location_name
         )
         return crud.create_user_profile(db, create_data, db_user.id)
 
-    # ✅ Username change logic
-    if profile_update.username and profile_update.username != db_user.username:
-        if crud.check_username_exists(db, profile_update.username):
-            raise HTTPException(status_code=400, detail="Username already taken")
-
-    # ✅ Proceed to update profile
     try:
         updated_profile = crud.update_user_profile(db, profile_update, db_user.id)
     except ValueError as ve:
@@ -128,8 +117,6 @@ async def update_user_profile_by_username(
         created_at=updated_profile.created_at,
         updated_at=updated_profile.updated_at,
     )
-
-
 
 @router.put("/upload-profile-image", response_model=UserProfileResponse, summary="Upload or change profile image")
 async def upload_profile_image(
@@ -173,18 +160,12 @@ async def upload_profile_image(
         post_count=post_count,
     )
 
-
-
 @router.delete("/by-username/{username}/image", response_model=UserProfileResponse)
 async def delete_profile_image_by_username(
     username: str,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Delete profile image by username.
-    Only the profile owner can delete.
-    """
     db_user = crud.get_user_by_username(db, username)
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -220,7 +201,7 @@ def generate_profile_share_link(
     db: Session = Depends(get_db)
 ):
     token = str(uuid.uuid4())
-    expires_at = datetime.utcnow() + timedelta(days=7)  # Optional
+    expires_at = datetime.utcnow() + timedelta(days=7)
 
     share_token = models.SharedProfileToken(
         user_id=current_user.id,
@@ -233,7 +214,6 @@ def generate_profile_share_link(
 
     share_url = f"{FRONTEND_URL}/view-profile/{token}"
     return {"token": token, "share_url": share_url}
-
 
 @router.get("/view-profile/{token}", response_model=schemas.UserProfilePublicResponse)
 def view_shared_profile(token: str, db: Session = Depends(get_db)):
@@ -251,4 +231,3 @@ def view_shared_profile(token: str, db: Session = Depends(get_db)):
         location=profile.location,
         age=user.age
     )
-

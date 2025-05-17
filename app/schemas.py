@@ -580,7 +580,7 @@ class UserResponse(BaseModel):
     created_at: datetime
     
     class Config:
-        orm_mode = True
+        model_config = ConfigDict(from_attributes=True)
         
     @property
     def formatted_phone_number(self):
@@ -675,7 +675,7 @@ class UserProfileBase(BaseModel):
         return v
     
     class Config:
-        orm_mode = True
+        model_config = ConfigDict(from_attributes=True)
 
 class UserProfileCreate(BaseModel):
     username: str
@@ -688,7 +688,7 @@ class UserProfileUpdate(BaseModel):
     username: Optional[str] = None
     display_name: Optional[str] = None
     bio: Optional[str] = None
-    location: Optional[str] = None
+    # location: Optional[str] = None
     account_type: Optional[AccountType] = None
     
     @validator('username')
@@ -833,106 +833,96 @@ class SharedProfileResponse(BaseModel):
 class UsernameListResponse(BaseModel):
     usernames: List[str]
     
-class ChatBase(BaseModel):
-    is_group: bool = False
-    name: Optional[str] = None
-    image: Optional[str] = None
+# -------------------- CHAT ENUMS --------------------
 
-class ChatCreate(ChatBase):
-    participant_ids: List[int]
+class MessageType(str, Enum):
+    text = "text"
+    emoji = "emoji"
+    image = "image"
+    audio = "audio"
 
-class ChatResponse(ChatBase):
-    id: UUID
-    creator_id: int
+class ChatAction(str, Enum):
+    send = "send"
+    edit = "edit"
+    delete = "delete"
+    delete_for_everyone = "delete_for_everyone"
+    unsend = "unsend"
+    hide = "hide"
+    react = "react"
+    remove_reaction = "remove_reaction"
+
+class ChatUserAction(str, Enum):
+    mute = "mute"
+    unmute = "unmute"
+    block = "block"
+    unblock = "unblock"
+    report = "report"
+
+# -------------------- CHAT SCHEMAS --------------------
+
+class ChatCreateRequest(BaseModel):
+    target_user_id: int
+
+class ChatResponse(BaseModel):
+    id: UUID4
+    user1_id: int
+    user2_id: int
+    is_accepted: bool
+    blocked_by: Optional[int]
     created_at: datetime
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
-class ChatMemberResponse(BaseModel):
-    id: UUID
-    user_id: int
-    chat_id: UUID
-    is_admin: bool
-    joined_at: datetime
-    is_muted: bool
+class ChatRequestAction(BaseModel):
+    action: Literal["accept", "decline", "block"]
 
-    class Config:
-        orm_mode = True
+class ChatUserActionRequest(BaseModel):
+    action: ChatUserAction
+    reason: Optional[str] = None
 
-class MessageBase(BaseModel):
-    message_type: Literal["text", "image", "video", "audio", "document"]
-    content: str
-    reply_to_id: Optional[UUID] = None
+class MessageSendRequest(BaseModel):
+    content: Optional[str] = None
+    media_url: Optional[str] = None
+    message_type: MessageType = MessageType.text
 
-class MessageCreate(MessageBase):
-    chat_id: UUID
+class MessageEditRequest(BaseModel):
+    new_content: str
 
-class MessageEdit(BaseModel):
-    content: str
+class MessageReactionRequest(BaseModel):
+    emoji: str
 
-class MessageResponse(BaseModel):
-    id: UUID
-    chat_id: UUID
-    sender_id: int
-    content: str
-    message_type: str
-    is_edited: bool
-    created_at: datetime
-    reply_to_id: Optional[UUID] = None
-
-    class Config:
-        orm_mode = True
-
-class ReactionCreate(BaseModel):
-    message_id: UUID
-    emoji: str  # ❤️ 😂 😮 😢 👏 🔥
-
-class ReactionResponse(BaseModel):
-    id: UUID
-    message_id: UUID
+class MessageReactionResponse(BaseModel):
+    id: UUID4
+    message_id: UUID4
     user_id: int
     emoji: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
-class MessageRequestCreate(BaseModel):
-    receiver_id: int  # The user you are sending request to
-
-class MessageRequestResponse(BaseModel):
-    id: UUID
+class MessageResponse(BaseModel):
+    id: UUID4
+    chat_id: UUID4
     sender_id: int
-    receiver_id: int
-    status: Literal["pending", "accepted", "declined"]
+    content: Optional[str]
+    media_url: Optional[str]
+    message_type: MessageType
+    is_deleted_for_all: bool
     created_at: datetime
+    edited_at: Optional[datetime]
+    seen_at: Optional[datetime]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
-class CallStartRequest(BaseModel):
-    chat_id: UUID
-    type: Literal["audio", "video"]
+class MessageUnsendRequest(BaseModel):
+    message_id: UUID4
 
-class CallResponse(BaseModel):
-    id: UUID
-    initiator_id: int
-    chat_id: UUID
-    type: str
-    started_at: datetime
-    ended_at: Optional[datetime]
-    status: str
+class ChatSettingsUpdate(BaseModel):
+    is_muted: Optional[bool] = None
+    is_archived: Optional[bool] = None
+    custom_background: Optional[str] = None  # URL or color code
 
     class Config:
-        orm_mode = True
-
-class CallParticipantResponse(BaseModel):
-    id: UUID
-    user_id: int
-    call_id: UUID
-    joined_at: datetime
-    left_at: Optional[datetime]
-
-    class Config:
-        orm_mode = True
-
+        from_attributes = True
