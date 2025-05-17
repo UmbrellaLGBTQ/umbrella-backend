@@ -289,7 +289,6 @@ class UserModel(BaseModel):
         return result.formatted_number
     
 
-
 # ---- Base Models ---- #
 class OTPBase(BaseModel):
     country_code: str
