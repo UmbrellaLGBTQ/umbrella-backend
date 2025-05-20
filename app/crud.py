@@ -4,7 +4,11 @@ from datetime import datetime, timedelta, date
 from typing import List, Optional
 
 from . import models, schemas, auth
-from .models import RefreshToken, UserProfile, PostType
+from .models import RefreshToken, UserProfile, PostType, User, BlockedUser
+import uuid
+from uuid import uuid4, UUID
+from .schemas import CountryPhoneData
+from fastapi import HTTPException, status
 
 # -------------------- USER GETTERS --------------------
 
@@ -86,6 +90,7 @@ def get_user_tags(db: Session, user_id: int):
 # -------------------- USER CREATION --------------------
 
 def create_user(db: Session, user_data: dict, hashed_password: str):
+    # Create the base user
     db_user = models.User(
         username=user_data["username"],
         first_name=user_data["first_name"],
@@ -101,15 +106,21 @@ def create_user(db: Session, user_data: dict, hashed_password: str):
         is_active=True
     )
 
+    # Construct display name
     display_name = f"{user_data['first_name']} {user_data['last_name']}"
 
-    db_profile = UserProfile(
+    # 🔍 Derive location using country code
+    country_data = CountryPhoneData()
+    location = country_data.get_country_data(str(user_data["country_code"])).get("country", None)
+
+    # Create profile with auto-filled location
+    db_profile = models.UserProfile(
         user=db_user,
         username=user_data["username"],
         display_name=display_name,
         profile_image_url=user_data.get("profile_picture_url"),
         bio=None,
-        location=user_data.get("location")
+        location=location
     )
 
     db.add(db_user)
@@ -171,36 +182,39 @@ def update_user_theme(db: Session, user_id: int, theme: models.Theme):
 def update_user_profile(db: Session, profile_update: schemas.UserProfileUpdate, user_id: int):
     profile = db.query(models.UserProfile).filter(models.UserProfile.user_id == user_id).first()
     user = db.query(models.User).filter(models.User.id == user_id).first()
-    
+
     if not profile or not user:
         return None
-    
-    if profile_update.username is not None:
-        # Check if username already exists
+
+    updates = profile_update.dict(exclude_unset=True)
+
+    if "username" in updates and updates["username"] != user.username:
         existing_user = db.query(models.User).filter(
-            models.User.username == profile_update.username,
-            models.User.id != user_id  # Exclude current user
+            models.User.username == updates["username"],
+            models.User.id != user_id
         ).first()
         if existing_user:
             raise ValueError("Username already taken")
+        user.username = updates["username"]
+        profile.username = updates["username"]
 
-        user.username = profile_update.username
-        profile.username = profile_update.username
+    if "display_name" in updates and updates["display_name"] != profile.display_name:
+        profile.display_name = updates["display_name"]
 
-    if profile_update.display_name is not None:
-        profile.display_name = profile_update.display_name
+    if "bio" in updates and updates["bio"] != profile.bio:
+        profile.bio = updates["bio"]
 
-    if profile_update.bio is not None:
-        profile.bio = profile_update.bio
+    if "profile_image_url" in updates and updates["profile_image_url"] != profile.profile_image_url:
+        profile.profile_image_url = updates["profile_image_url"]
 
-    if profile_update.profile_image_url is not None:
-        profile.profile_image_url = profile_update.profile_image_url
+    if "account_type" in updates and updates["account_type"] != user.account_type:
+        user.account_type = updates["account_type"]
 
-    if profile_update.location is not None:
-        profile.location = profile_update.location
-
-    if profile_update.account_type is not None:
-        user.account_type = profile_update.account_type  # ✅ Set on User model
+    # Set location if not already set
+    if not profile.location:
+        country_helper = CountryPhoneData()
+        auto_location = country_helper.get_country_data(str(user.country_code)).get("country", None)
+        profile.location = auto_location
 
     db.commit()
     db.refresh(profile)
@@ -394,6 +408,10 @@ def handle_connection_request_logic(db: Session, requester_username: str, reques
 
     requester = db.query(User).filter(User.username == requester_username).first()
     requestee = db.query(User).filter(User.username == requestee_username).first()
+    
+    if is_blocked_relation(db, requester.id, requestee.id):
+        raise ValueError("Cannot connect with blocked user")
+
 
     if not requester or not requestee:
         raise ValueError("Invalid requester or requestee username")
@@ -445,4 +463,260 @@ def get_users_by_phone(db: Session, phone_number: str):
     return db.query(models.User).filter(
         models.User.phone_number == normalized
     ).all()
+
+def create_or_get_chat(db: Session, user_id: int, target_user_id: int) -> models.Chat:
+    
+    if is_blocked_relation(db, user_id, target_user_id):
+        raise ValueError("Cannot create a chat with blocked user")
+
+    if user_id == target_user_id:
+        raise ValueError("Cannot create a chat with yourself")
+
+    chat = db.query(models.Chat).filter(
+        or_(
+            and_(models.Chat.user1_id == user_id, models.Chat.user2_id == target_user_id),
+            and_(models.Chat.user1_id == target_user_id, models.Chat.user2_id == user_id)
+        )
+    ).first()
+
+    if chat:
+        return chat
+
+    # Create new chat
+    new_chat = models.Chat(
+        user1_id=user_id,
+        user2_id=target_user_id,
+        is_accepted=True,
+        created_at=datetime.utcnow()
+    )
+    db.add(new_chat)
+    db.commit()
+    db.refresh(new_chat)
+    return new_chat
+
+def handle_chat_request(db: Session, chat_id: UUID, current_user_id: int, action: str):
+    chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
+    if not chat:
+        raise ValueError("Chat not found")
+
+    if current_user_id not in [chat.user1_id, chat.user2_id]:
+        raise ValueError("Unauthorized")
+
+    if action == "accept":
+        chat.is_accepted = True
+        chat.blocked_by = None
+    elif action == "decline":
+        db.delete(chat)
+        db.commit()
+        return {"message": "Chat request declined and removed."}
+    elif action == "block":
+        chat.blocked_by = current_user_id
+    else:
+        raise ValueError("Invalid action")
+
+    db.commit()
+    db.refresh(chat)
+    return chat
+
+def get_user_chats(db: Session, user_id: int):
+    return db.query(models.Chat).filter(
+        or_(
+            models.Chat.user1_id == user_id,
+            models.Chat.user2_id == user_id
+        ),
+        models.Chat.is_accepted == True,
+        or_(
+            models.Chat.blocked_by == None,
+            models.Chat.blocked_by != user_id
+        )
+    ).order_by(models.Chat.created_at.desc()).all()
+    
+def send_message(db: Session, chat_id: UUID, sender_id: int, message_data: schemas.MessageSendRequest):
+    chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
+    if not chat:
+        raise ValueError("Chat not found")
+
+    if sender_id not in [chat.user1_id, chat.user2_id]:
+        raise ValueError("Unauthorized to send message in this chat")
+
+    if chat.blocked_by and chat.blocked_by != sender_id:
+        raise ValueError("You are blocked by the other user")
+
+    message = models.Message(
+        id=uuid4(),
+        chat_id=chat_id,
+        sender_id=sender_id,
+        content=message_data.content,
+        media_url=message_data.media_url,
+        message_type=message_data.message_type,
+        created_at=datetime.utcnow()
+    )
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+    return message
+
+def edit_message(db: Session, message_id: UUID, user_id: int, update_data: schemas.MessageEditRequest):
+    message = db.query(models.Message).filter(models.Message.id == message_id).first()
+    if not message:
+        raise ValueError("Message not found")
+
+    if message.sender_id != user_id:
+        raise ValueError("Only the sender can edit the message")
+
+    message.content = update_data.new_content
+    message.edited_at = datetime.utcnow()
+    db.commit()
+    db.refresh(message)
+    return message
+
+def delete_message(db: Session, message_id: UUID, user_id: int, for_everyone: bool = False):
+    message = db.query(models.Message).filter(models.Message.id == message_id).first()
+    if not message:
+        raise ValueError("Message not found")
+
+    if for_everyone:
+        if message.sender_id != user_id:
+            raise ValueError("Only the sender can delete for everyone")
+        message.is_deleted_for_all = True
+        db.commit()
+        return {"message": "Message deleted for everyone."}
+    else:
+        # Delete for current user only
+        already_hidden = db.query(models.MessageVisibility).filter_by(
+            message_id=message_id, user_id=user_id
+        ).first()
+        if not already_hidden:
+            visibility = models.MessageVisibility(
+                message_id=message_id,
+                user_id=user_id
+            )
+            db.add(visibility)
+            db.commit()
+        return {"message": "Message deleted for you only."}
+    
+def hide_message_for_user(db: Session, message_id: UUID, user_id: int):
+    return delete_message(db, message_id, user_id, for_everyone=False)
+
+
+def unsend_message(db: Session, message_id: UUID, user_id: int):
+    message = db.query(models.Message).filter(models.Message.id == message_id).first()
+    if not message:
+        raise ValueError("Message not found")
+
+    if message.sender_id != user_id:
+        raise ValueError("Only sender can unsend")
+
+    message.content = None
+    message.media_url = None
+    message.is_deleted_for_all = True
+    db.commit()
+    return {"message": "Message unsent."}
+
+
+def react_to_message(db: Session, message_id: UUID, user_id: int, emoji: str):
+    existing = db.query(models.Reaction).filter_by(message_id=message_id, user_id=user_id).first()
+    if existing:
+        existing.emoji = emoji
+    else:
+        new_reaction = models.Reaction(message_id=message_id, user_id=user_id, emoji=emoji)
+        db.add(new_reaction)
+    db.commit()
+    return db.query(models.Reaction).filter_by(message_id=message_id, user_id=user_id).first()
+
+
+def remove_reaction(db: Session, message_id: UUID, user_id: int):
+    reaction = db.query(models.Reaction).filter_by(message_id=message_id, user_id=user_id).first()
+    if reaction:
+        db.delete(reaction)
+        db.commit()
+    return {"message": "Reaction removed"}
+
+
+def get_visible_messages(db: Session, chat_id: UUID, user_id: int):
+    hidden_ids = db.query(models.MessageVisibility.message_id).filter_by(user_id=user_id).subquery()
+    messages = db.query(models.Message).filter(
+        models.Message.chat_id == chat_id,
+        ~models.Message.id.in_(hidden_ids)
+    ).order_by(models.Message.created_at.asc()).all()
+    return messages
+
+
+def is_blocked_relation(db: Session, user_a_id: int, user_b_id: int) -> bool:
+    return db.query(BlockedUser).filter(
+        or_(
+            and_(BlockedUser.blocker_id == user_a_id, BlockedUser.blocked_id == user_b_id),
+            and_(BlockedUser.blocker_id == user_b_id, BlockedUser.blocked_id == user_a_id)
+        )
+    ).first() is not None
+
+def search_profiles_by_name_or_username(db: Session, query: str, limit: int, offset: int, user_id: int):
+    blocked_pairs = db.query(BlockedUser).filter(
+        or_(
+            BlockedUser.blocker_id == user_id,
+            BlockedUser.blocked_id == user_id
+        )
+    ).all()
+
+    excluded_ids = set()
+    for pair in blocked_pairs:
+        excluded_ids.add(pair.blocked_id)
+        excluded_ids.add(pair.blocker_id)
+
+    search = f"%{query.lower()}%"
+    return (
+        db.query(UserProfile)
+        .filter(
+            ~UserProfile.user_id.in_(excluded_ids),
+            or_(
+                UserProfile.username.ilike(search),
+                UserProfile.display_name.ilike(search)
+            )
+        )
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+
+def block_user(db: Session, blocker_id: int, blocked_user: User):
+    existing = db.query(BlockedUser).filter_by(blocker_id=blocker_id, blocked_id=blocked_user.id).first()
+    if existing:
+        return existing
+
+    # Create the block record
+    blocked = BlockedUser(blocker_id=blocker_id, blocked_id=blocked_user.id)
+    db.add(blocked)
+    db.commit()
+    db.refresh(blocked)
+
+    # Remove connection if one exists
+    connection = db.query(models.Connection).filter(
+        or_(
+            and_(models.Connection.user_id1 == blocker_id, models.Connection.user_id2 == blocked_user.id),
+            and_(models.Connection.user_id2 == blocker_id, models.Connection.user_id1 == blocked_user.id),
+        )
+    ).first()
+
+    if connection:
+        db.delete(connection)
+        db.commit()
+
+    return blocked
+
+
+def unblock_user(db: Session, blocker_id: UUID, blocked_user: User):
+    record = db.query(BlockedUser).filter_by(blocker_id=blocker_id, blocked_id=blocked_user.id).first()
+    if record:
+        db.delete(record)
+        db.commit()
+    return record
+
+def get_blocked_user_ids(db: Session, user_id: int):
+    rows = db.query(BlockedUser.blocked_id).filter_by(blocker_id=user_id).all()
+    return [r[0] for r in rows]
+
+def get_blocked_users(db: Session, user_id: int):
+    blocked_ids = get_blocked_user_ids(db, user_id)
+    return db.query(User).filter(User.id.in_(blocked_ids)).all()
 

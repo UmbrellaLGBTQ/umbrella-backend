@@ -4,6 +4,7 @@ from typing import Optional
 from datetime import datetime
 from .. import schemas, crud, auth, otp, models
 from ..database import get_db
+from fastapi.responses import JSONResponse
 
 router = APIRouter(
     prefix="/signup",
@@ -66,7 +67,7 @@ def verify_signup_otp(
     if not verification["valid"]:
         raise HTTPException(status_code=400, detail=verification["message"])
 
-    return {"message": "OTP verified successfully. Please complete your profile."}
+    return JSONResponse(content={"message": "OTP verified successfully. Please complete your profile."})
 
 @router.post("/complete-profile", response_model=schemas.UserResponse)
 def complete_signup(

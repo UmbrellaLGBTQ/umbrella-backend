@@ -1,163 +1,107 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, WebSocket, WebSocketDisconnect, Query
 from sqlalchemy.orm import Session
-from typing import List, Dict
+from typing import List, Optional
 from uuid import UUID
-from datetime import datetime
 
-from app.database import get_db
-from app import models, schemas
-from app.auth import get_current_user
-from app.websocket_manager import ConnectionManager
+from .. import models, schemas, crud
+from ..database import get_db
+from ..auth import get_current_user
+from ..websocket_manager import ConnectionManager
 
-router = APIRouter(prefix="/chat", tags=["Chat"])
+router = APIRouter(prefix="/chat", tags=["chat"])
+
 ws_manager = ConnectionManager()
 
-# Create a new chat (1-on-1 or group)
-@router.post("/create", response_model=schemas.ChatResponse)
-def create_chat(chat_data: schemas.ChatCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    new_chat = models.Chat(
-        is_group=chat_data.is_group,
-        name=chat_data.name,
-        image=chat_data.image,
-        creator_id=current_user.id,
-        created_at=datetime.utcnow()
-    )
-    db.add(new_chat)
-    db.commit()
-    db.refresh(new_chat)
-
-    member_ids = chat_data.participant_ids + [current_user.id]
-    for uid in set(member_ids):
-        db.add(models.ChatMember(
-            chat_id=new_chat.id,
-            user_id=uid,
-            is_admin=(uid == current_user.id),
-            joined_at=datetime.utcnow()
-        ))
-    db.commit()
-    return new_chat
-
-# Get all chats for the current user
-@router.get("/list", response_model=List[schemas.ChatResponse])
-def get_user_chats(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    chats = db.query(models.Chat).join(models.ChatMember).filter(models.ChatMember.user_id == current_user.id).all()
-    return chats
-
-# Send a message to a chat
-@router.post("/{chat_id}/message", response_model=schemas.MessageResponse)
-async def send_message(chat_id: UUID, message: schemas.MessageCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    if not db.query(models.ChatMember).filter_by(chat_id=chat_id, user_id=current_user.id).first():
-        raise HTTPException(status_code=403, detail="You are not a member of this chat")
-
-    new_message = models.Message(
-        chat_id=chat_id,
-        sender_id=current_user.id,
-        content=message.content,
-        message_type=message.message_type,
-        reply_to_id=message.reply_to_id,
-        created_at=datetime.utcnow()
-    )
-    db.add(new_message)
-    db.commit()
-    db.refresh(new_message)
-
-    # Notify chat participants via WebSocket
-    await ws_manager.broadcast_to_chat(chat_id, {"event": "new_message", "data": schemas.MessageResponse.from_orm(new_message).dict()})
-    return new_message
-
-# Get messages from a chat
-@router.get("/{chat_id}/messages", response_model=List[schemas.MessageResponse])
-def get_chat_messages(chat_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    if not db.query(models.ChatMember).filter_by(chat_id=chat_id, user_id=current_user.id).first():
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    return db.query(models.Message).filter_by(chat_id=chat_id).order_by(models.Message.created_at).all()
-
-# React to a message
-@router.post("/message/{message_id}/react", response_model=schemas.ReactionResponse)
-async def react_to_message(message_id: UUID, reaction: schemas.ReactionCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    existing = db.query(models.Reaction).filter_by(message_id=message_id, user_id=current_user.id).first()
-    if existing:
-        db.delete(existing)
-    new_reaction = models.Reaction(
-        message_id=message_id,
-        user_id=current_user.id,
-        emoji=reaction.emoji
-    )
-    db.add(new_reaction)
-    db.commit()
-    db.refresh(new_reaction)
-
-    # Notify via WebSocket
-    await ws_manager.broadcast_to_chat(models.Message.message_id, {"event": "reaction", "data": schemas.ReactionResponse.from_orm(new_reaction).dict()})
-    return new_reaction
-
-# Delete a message
-@router.delete("/message/{message_id}", response_model=schemas.MessageResponse)
-def delete_message(message_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    message = db.query(models.Message).filter_by(id=message_id, sender_id=current_user.id).first()
-    if not message:
-        raise HTTPException(status_code=404, detail="Message not found or unauthorized")
-    db.delete(message)
-    db.commit()
-    return message
-
-# WebSocket for real-time messaging
+# ------------------------ WebSocket ------------------------
 @router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: int):
     await ws_manager.connect(user_id, websocket)
     try:
         while True:
             data = await websocket.receive_json()
-            await ws_manager.route_event(user_id, data)
+            event = data.get("event")
+            if event == "typing":
+                await ws_manager.broadcast_to_chat(data["chat_id"], {
+                    "event": "typing",
+                    "user_id": user_id
+                })
+            elif event == "seen":
+                await ws_manager.broadcast_to_chat(data["chat_id"], {
+                    "event": "seen",
+                    "message_id": data["message_id"],
+                    "user_id": user_id
+                })
+            elif event == "join":
+                await ws_manager.join_chat(user_id, data["chat_id"])
+            elif event == "leave":
+                await ws_manager.leave_chat(user_id, data["chat_id"])
     except WebSocketDisconnect:
-        ws_manager.disconnect(user_id)
+        await ws_manager.disconnect(user_id)
 
-# Start a call
-@router.post("/call/start", response_model=schemas.CallResponse)
-def start_call(call_data: schemas.CallStartRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    if not db.query(models.ChatMember).filter_by(chat_id=call_data.chat_id, user_id=current_user.id).first():
-        raise HTTPException(status_code=403, detail="You are not part of this chat")
 
-    new_call = models.Call(
-        initiator_id=current_user.id,
-        chat_id=call_data.chat_id,
-        type=call_data.type,
-        started_at=datetime.utcnow()
-    )
-    db.add(new_call)
-    db.commit()
-    db.refresh(new_call)
-    return new_call
+# ------------------------ Chat Management ------------------------
+@router.post("/create", response_model=schemas.ChatResponse)
+def create_chat(request: schemas.ChatCreateRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    return crud.create_or_get_chat(db, current_user.id, request.target_user_id)
 
-# Join call participant
-@router.post("/call/{call_id}/join", response_model=schemas.CallParticipantResponse)
-def join_call(call_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    participant = models.CallParticipant(
-        call_id=call_id,
-        user_id=current_user.id,
-        joined_at=datetime.utcnow()
-    )
-    db.add(participant)
-    db.commit()
-    db.refresh(participant)
-    return participant
 
-# Leave call
-@router.post("/call/{call_id}/leave", response_model=schemas.CallParticipantResponse)
-def leave_call(call_id: UUID, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    participant = db.query(models.CallParticipant).filter_by(call_id=call_id, user_id=current_user.id).first()
-    if not participant:
-        raise HTTPException(status_code=404, detail="Participant not found")
+@router.get("/list", response_model=List[schemas.ChatResponse])
+def get_user_chats(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    return crud.get_user_chats(db, current_user.id)
 
-    participant.left_at = datetime.utcnow()
-    db.commit()
-    return participant
 
-# Call history
-@router.get("/call/history", response_model=List[schemas.CallResponse])
-def call_history(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    return db.query(models.Call).filter(
-        (models.Call.initiator_id == current_user.id) |
-        (models.Call.id.in_(db.query(models.CallParticipant.call_id).filter_by(user_id=current_user.id)))
-    ).order_by(models.Call.started_at.desc()).all()
+@router.patch("/{chat_id}/settings")
+def update_chat_settings(chat_id: UUID, settings: schemas.ChatSettingsUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    return crud.update_chat_settings(db, chat_id, current_user.id, settings)
+
+
+# ------------------------ Unified Message Handler ------------------------
+@router.post("/{chat_id}/message")
+def message_handler(
+    chat_id: UUID,
+    action: str = Query("send", enum=["send", "edit", "delete", "delete_for_everyone", "unsend", "hide", "react", "remove_reaction"]),
+    message_id: Optional[UUID] = None,
+    emoji: Optional[str] = None,
+    message_data: Optional[schemas.MessageSendRequest] = None,
+    edit_data: Optional[schemas.MessageEditRequest] = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    if action == "send":
+        return crud.send_message(db, chat_id, current_user.id, message_data)
+    elif action == "edit":
+        return crud.edit_message(db, message_id, current_user.id, edit_data)
+    elif action == "delete":
+        return crud.delete_message(db, message_id, current_user.id, for_everyone=False)
+    elif action == "delete_for_everyone":
+        return crud.delete_message(db, message_id, current_user.id, for_everyone=True)
+    elif action == "unsend":
+        return crud.unsend_message(db, message_id, current_user.id)
+    elif action == "hide":
+        return crud.hide_message_for_user(db, message_id, current_user.id)
+    elif action == "react":
+        return crud.react_to_message(db, message_id, current_user.id, emoji)
+    elif action == "remove_reaction":
+        return crud.remove_reaction(db, message_id, current_user.id)
+    raise HTTPException(status_code=400, detail="Unsupported action")
+
+
+@router.get("/{chat_id}/messages", response_model=List[schemas.MessageResponse])
+def get_chat_messages(
+    chat_id: UUID,
+    search: Optional[str] = None,
+    type: Optional[str] = None,  # e.g., "media"
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    return crud.get_filtered_messages(db, chat_id, current_user.id, search=search, type=type)
+
+
+# ------------------------ Chat User Actions ------------------------
+@router.post("/user-action")
+def user_action(
+    action_data: schemas.ChatUserActionRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    return crud.handle_chat_user_action(db, current_user.id, action_data)
