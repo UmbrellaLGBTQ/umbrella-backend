@@ -7,7 +7,11 @@ from app.database import get_db
 from app.models import User
 from app.auth import get_current_user
 
-router = APIRouter()
+router = APIRouter(
+    prefix="/api/Block",
+    tags=["block"],
+    responses={404: {"description": "Not found"}}
+)
 
 
 @router.post("/api/block", status_code=204)

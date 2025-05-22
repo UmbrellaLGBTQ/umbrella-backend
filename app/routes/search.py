@@ -4,7 +4,12 @@ from app.database import get_db
 from app import crud, schemas
 from app.models import User
 from app.auth import get_current_user
-router = APIRouter()
+
+router = APIRouter(
+    prefix="/api/Search",
+    tags=["search"],
+    responses={404: {"description": "Not found"}}
+)
 
 @router.get("/api/search/users", response_model=list[schemas.UserProfileOut])
 def search_users(
