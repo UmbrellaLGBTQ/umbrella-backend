@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field, validator, HttpUrl, ConfigDict, UUID4
+from pydantic import BaseModel, EmailStr, Field, validator, HttpUrl, ConfigDict, UUID4, model_validator
 from typing import Dict, Optional, List, Union, Tuple, Literal
 from datetime import date, datetime
 import re
@@ -766,25 +766,21 @@ class ConnectionStatus(str, Enum):
 
 
 class ConnectionRequestBase(BaseModel):
-    # requester_username: str
     requestee_username: str
-
 
 class ConnectionRequestCreate(ConnectionRequestBase):
     pass
 
-
 class ConnectionRequestUpdate(BaseModel):
     status: Literal["accepted", "declined"]
 
-
 class RequesterPreview(BaseModel):
     username: str
-    display_name: str
+    display_name: Optional[str] = None  # Made optional to avoid validation error
     profile_image_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
-    
+
 class ConnectionSuccessResponse(BaseModel):
     message: str
 
@@ -799,10 +795,11 @@ class ConnectionRequestResponse(BaseModel):
 # Preview of connected user
 class ConnectionUserPreviewResponse(BaseModel):
     username: str
-    display_name: str
+    display_name: Optional[str] = None  # Made optional to avoid similar errors elsewhere
     profile_image_url: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
 
 # Connection list response for /connections/{username}
 class ConnectionListResponse(BaseModel):
@@ -833,6 +830,10 @@ class SharedProfileResponse(BaseModel):
 class UsernameListResponse(BaseModel):
     usernames: List[str]
     
+class GenericMessageResponse(BaseModel):
+    message: str
+
+
 # -------------------- CHAT ENUMS --------------------
 
 class MessageType(str, Enum):
@@ -847,9 +848,10 @@ class ChatAction(str, Enum):
     delete = "delete"
     delete_for_everyone = "delete_for_everyone"
     unsend = "unsend"
-    hide = "hide"
     react = "react"
     remove_reaction = "remove_reaction"
+    copy = "copy"
+    forward = "forward"
 
 class ChatUserAction(str, Enum):
     mute = "mute"
@@ -857,6 +859,10 @@ class ChatUserAction(str, Enum):
     block = "block"
     unblock = "unblock"
     report = "report"
+
+class GroupRole(str, Enum):
+    MEMBER = "member"
+    ADMIN = "admin"
 
 # -------------------- CHAT SCHEMAS --------------------
 
@@ -881,6 +887,29 @@ class ChatUserActionRequest(BaseModel):
     action: ChatUserAction
     reason: Optional[str] = None
 
+class ChatSettingsUpdate(BaseModel):
+    is_muted: Optional[bool] = None
+    is_archived: Optional[bool] = None
+    custom_background: Optional[str] = None  # URL or color code
+
+    class Config:
+        from_attributes = True
+
+class MessageCreate(BaseModel):
+    chat_id: Optional[UUID4] = None
+    group_id: Optional[UUID4] = None
+    content: Optional[str] = None
+    media_url: Optional[str] = None
+    message_type: MessageType = MessageType.text
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if not self.chat_id and not self.group_id:
+            raise ValueError("Either 'chat_id' or 'group_id' must be provided.")
+        if self.chat_id and self.group_id:
+            raise ValueError("Only one of 'chat_id' or 'group_id' should be provided.")
+        return self
+
 class MessageSendRequest(BaseModel):
     content: Optional[str] = None
     media_url: Optional[str] = None
@@ -888,6 +917,25 @@ class MessageSendRequest(BaseModel):
 
 class MessageEditRequest(BaseModel):
     new_content: str
+
+class MessageUnsendRequest(BaseModel):
+    message_id: UUID4
+
+class MessageCopyRequest(BaseModel):
+    message_id: UUID4
+
+class MessageForwardRequest(BaseModel):
+    message_id: UUID4
+    target_chat_id: Optional[UUID4] = None
+    target_group_id: Optional[UUID4] = None
+
+    @model_validator(mode="after")
+    def validate_target(self):
+        if not self.target_chat_id and not self.target_group_id:
+            raise ValueError("Must specify either target_chat_id or target_group_id.")
+        if self.target_chat_id and self.target_group_id:
+            raise ValueError("Only one of target_chat_id or target_group_id should be provided.")
+        return self
 
 class MessageReactionRequest(BaseModel):
     emoji: str
@@ -901,28 +949,129 @@ class MessageReactionResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class ReactionPreview(BaseModel):
+    user_id: int
+    emoji: str
+
+    class Config:
+        from_attributes = True
+
 class MessageResponse(BaseModel):
     id: UUID4
-    chat_id: UUID4
+    chat_id: Optional[UUID4]
+    group_id: Optional[UUID4]
     sender_id: int
     content: Optional[str]
     media_url: Optional[str]
     message_type: MessageType
-    is_deleted_for_all: bool
     created_at: datetime
     edited_at: Optional[datetime]
+    is_deleted_for_all: bool
     seen_at: Optional[datetime]
+    reactions: List[ReactionPreview] = []
 
     class Config:
         from_attributes = True
 
-class MessageUnsendRequest(BaseModel):
-    message_id: UUID4
+class MessageAction(str, Enum):
+    send = "send"
+    edit = "edit"
+    delete = "delete"
+    delete_for_everyone = "delete_for_everyone"
+    unsend = "unsend"
+    react = "react"
+    remove_reaction = "remove_reaction"
+    forward = "forward"
+    copy = "copy"
+    
+class MessageActionRequest(BaseModel):
+    action: MessageAction
+    message_data: Optional[MessageCreate] = None
+    message_id: Optional[UUID4] = None
+    new_content: Optional[str] = None
+    emoji: Optional[str] = None
+    forward_chat_id: Optional[UUID4] = None
+    forward_group_id: Optional[UUID4] = None
 
-class ChatSettingsUpdate(BaseModel):
-    is_muted: Optional[bool] = None
-    is_archived: Optional[bool] = None
-    custom_background: Optional[str] = None  # URL or color code
+
+# -------------------- GROUP SCHEMAS --------------------
+
+class GroupCreateRequest(BaseModel):
+    name: str = Field(..., example="Friends Group")
+    members_usernames: Optional[List[str]] = Field(
+        default_factory=list,
+        description="List of usernames to add as members. Creator is auto admin."
+    )
+
+class GroupResponse(BaseModel):
+    id: UUID4
+    name: str
+    creator_id: int
+    created_at: datetime
 
     class Config:
         from_attributes = True
+
+class GroupMemberResponse(BaseModel):
+    user_id: int
+    role: GroupRole
+    joined_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class GroupResponseWithMembers(GroupResponse):
+    members: List[GroupMemberResponse]
+
+class GroupMessageRequest(BaseModel):
+    content: str
+    media_url: Optional[str] = None
+    message_type: MessageType = MessageType.text
+
+class MemberActionRequest(BaseModel):
+    username: str = Field(..., example="john_doe")  # Identifier
+    action: Literal["add", "remove", "promote", "demote"]
+
+class LeaveGroupResponse(BaseModel):
+    message: str = Field(..., example="You have left the group.")
+
+class GenericMessage(BaseModel):
+    message: str
+
+class NotificationType(str, Enum):
+    LIKE = "like"
+    COMMENT = "comment"
+    FOLLOW = "follow"
+    MENTION = "mention"
+    SYSTEM = "system"
+
+# ------------------ Request Schemas ------------------
+
+class NotificationCreate(BaseModel):
+    user_id: int = Field(..., description="Recipient user ID")
+    title: str = Field(..., example="New Like")
+    body: str = Field(..., example="John liked your post")
+    type: NotificationType = Field(..., example="like")
+    reference_id: Optional[UUID] = Field(None, description="ID of the post/comment/user associated with this notification")
+
+
+# ------------------ Response Schemas ------------------
+
+class NotificationResponse(BaseModel):
+    id: UUID
+    user_id: int
+    title: str
+    body: str
+    type: NotificationType
+    reference_id: Optional[UUID]
+    is_read: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ------------------ Generic Response ------------------
+
+class GenericMessage(BaseModel):
+    message: str

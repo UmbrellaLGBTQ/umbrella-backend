@@ -7,7 +7,8 @@ from . import models, schemas, auth
 from .models import RefreshToken, UserProfile, PostType
 import uuid
 from uuid import uuid4, UUID
-from .schemas import CountryPhoneData
+from .schemas import CountryPhoneData, MessageResponse
+from fastapi import HTTPException
 
 # -------------------- USER GETTERS --------------------
 
@@ -308,14 +309,16 @@ def get_valid_shared_token(db: Session, token: str):
         models.SharedProfileLink.is_active == True
     ).first()
 
-def create_connection_request(db: Session, requester_id: int, requestee_id: int) -> models.ConnectionRequest:
+def create_connection_request(db: Session, requester_id: int, requestee_id: int) -> bool:
+    # Check if a pending or existing connection request already exists in either direction
     existing = db.query(models.ConnectionRequest).filter(
         models.ConnectionRequest.requester_id == requester_id,
-        models.ConnectionRequest.requestee_id == requestee_id
+        models.ConnectionRequest.requestee_id == requestee_id,
+        models.ConnectionRequest.status == "pending"
     ).first()
 
     if existing:
-        return existing
+        return False  # Indicate request already exists
 
     request = models.ConnectionRequest(
         requester_id=requester_id,
@@ -324,8 +327,8 @@ def create_connection_request(db: Session, requester_id: int, requestee_id: int)
     )
     db.add(request)
     db.commit()
-    db.refresh(request)
-    return request
+    return True  # Indicate request created successfully
+
 
 def accept_connection_request(db: Session, request_id: int, current_user_id: int):
     request = db.query(models.ConnectionRequest).filter_by(id=request_id).first()
@@ -485,13 +488,15 @@ def create_or_get_chat(db: Session, user_id: int, target_user_id: int) -> models
     db.refresh(new_chat)
     return new_chat
 
+# ------------------------ Chat Management ------------------------
+
 def handle_chat_request(db: Session, chat_id: UUID, current_user_id: int, action: str):
-    chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
+    chat = db.query(models.Chat).filter_by(id=chat_id).first()
     if not chat:
-        raise ValueError("Chat not found")
+        raise HTTPException(status_code=404, detail="Chat not found")
 
     if current_user_id not in [chat.user1_id, chat.user2_id]:
-        raise ValueError("Unauthorized")
+        raise HTTPException(status_code=403, detail="Unauthorized")
 
     if action == "accept":
         chat.is_accepted = True
@@ -503,7 +508,7 @@ def handle_chat_request(db: Session, chat_id: UUID, current_user_id: int, action
     elif action == "block":
         chat.blocked_by = current_user_id
     else:
-        raise ValueError("Invalid action")
+        raise HTTPException(status_code=400, detail="Invalid action")
 
     db.commit()
     db.refresh(chat)
@@ -521,25 +526,31 @@ def get_user_chats(db: Session, user_id: int):
             models.Chat.blocked_by != user_id
         )
     ).order_by(models.Chat.created_at.desc()).all()
-    
-def send_message(db: Session, chat_id: UUID, sender_id: int, message_data: schemas.MessageSendRequest):
-    chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
-    if not chat:
-        raise ValueError("Chat not found")
 
-    if sender_id not in [chat.user1_id, chat.user2_id]:
-        raise ValueError("Unauthorized to send message in this chat")
+def send_message(db: Session, sender_id: int, data: schemas.MessageCreate):
+    if data.chat_id:
+        chat = db.query(models.Chat).filter_by(id=data.chat_id).first()
+        if not chat or sender_id not in [chat.user1_id, chat.user2_id]:
+            raise HTTPException(status_code=403, detail="Unauthorized or invalid chat")
+        if chat.blocked_by and chat.blocked_by != sender_id:
+            raise HTTPException(status_code=403, detail="You are blocked by the other user")
 
-    if chat.blocked_by and chat.blocked_by != sender_id:
-        raise ValueError("You are blocked by the other user")
+    elif data.group_id:
+        member = db.query(models.GroupMember).filter_by(group_id=data.group_id, user_id=sender_id).first()
+        if not member:
+            raise HTTPException(status_code=403, detail="You are not a member of the group")
+
+    else:
+        raise HTTPException(status_code=400, detail="chat_id or group_id is required")
 
     message = models.Message(
         id=uuid4(),
-        chat_id=chat_id,
+        chat_id=data.chat_id,
+        group_id=data.group_id,
         sender_id=sender_id,
-        content=message_data.content,
-        media_url=message_data.media_url,
-        message_type=message_data.message_type,
+        content=data.content,
+        media_url=data.media_url,
+        message_type=data.message_type,
         created_at=datetime.utcnow()
     )
     db.add(message)
@@ -547,13 +558,11 @@ def send_message(db: Session, chat_id: UUID, sender_id: int, message_data: schem
     db.refresh(message)
     return message
 
-def edit_message(db: Session, message_id: UUID, user_id: int, update_data: schemas.MessageEditRequest):
-    message = db.query(models.Message).filter(models.Message.id == message_id).first()
-    if not message:
-        raise ValueError("Message not found")
 
-    if message.sender_id != user_id:
-        raise ValueError("Only the sender can edit the message")
+def edit_message(db: Session, message_id: UUID, user_id: int, update_data: schemas.MessageEditRequest):
+    message = db.query(models.Message).filter_by(id=message_id).first()
+    if not message or message.sender_id != user_id:
+        raise HTTPException(status_code=403, detail="Only the sender can edit the message")
 
     message.content = update_data.new_content
     message.edited_at = datetime.utcnow()
@@ -561,44 +570,32 @@ def edit_message(db: Session, message_id: UUID, user_id: int, update_data: schem
     db.refresh(message)
     return message
 
+
 def delete_message(db: Session, message_id: UUID, user_id: int, for_everyone: bool = False):
-    message = db.query(models.Message).filter(models.Message.id == message_id).first()
+    message = db.query(models.Message).filter_by(id=message_id).first()
     if not message:
-        raise ValueError("Message not found")
+        raise HTTPException(status_code=404, detail="Message not found")
 
     if for_everyone:
         if message.sender_id != user_id:
-            raise ValueError("Only the sender can delete for everyone")
+            raise HTTPException(status_code=403, detail="Only sender can delete for everyone")
         message.is_deleted_for_all = True
         db.commit()
         return {"message": "Message deleted for everyone."}
     else:
-        # Delete for current user only
-        already_hidden = db.query(models.MessageVisibility).filter_by(
-            message_id=message_id, user_id=user_id
-        ).first()
+        already_hidden = db.query(models.MessageVisibility).filter_by(message_id=message_id, user_id=user_id).first()
         if not already_hidden:
-            visibility = models.MessageVisibility(
-                message_id=message_id,
-                user_id=user_id
-            )
-            db.add(visibility)
+            db.add(models.MessageVisibility(message_id=message_id, user_id=user_id))
             db.commit()
         return {"message": "Message deleted for you only."}
-    
-def hide_message_for_user(db: Session, message_id: UUID, user_id: int):
-    return delete_message(db, message_id, user_id, for_everyone=False)
 
 
 def unsend_message(db: Session, message_id: UUID, user_id: int):
-    message = db.query(models.Message).filter(models.Message.id == message_id).first()
-    if not message:
-        raise ValueError("Message not found")
+    message = db.query(models.Message).filter_by(id=message_id).first()
+    if not message or message.sender_id != user_id:
+        raise HTTPException(status_code=403, detail="Only sender can unsend")
 
-    if message.sender_id != user_id:
-        raise ValueError("Only sender can unsend")
-
-    message.content = None
+    message.content = "[Message deleted]"
     message.media_url = None
     message.is_deleted_for_all = True
     db.commit()
@@ -610,8 +607,7 @@ def react_to_message(db: Session, message_id: UUID, user_id: int, emoji: str):
     if existing:
         existing.emoji = emoji
     else:
-        new_reaction = models.Reaction(message_id=message_id, user_id=user_id, emoji=emoji)
-        db.add(new_reaction)
+        db.add(models.Reaction(message_id=message_id, user_id=user_id, emoji=emoji))
     db.commit()
     return db.query(models.Reaction).filter_by(message_id=message_id, user_id=user_id).first()
 
@@ -624,11 +620,128 @@ def remove_reaction(db: Session, message_id: UUID, user_id: int):
     return {"message": "Reaction removed"}
 
 
-def get_visible_messages(db: Session, chat_id: UUID, user_id: int):
-    hidden_ids = db.query(models.MessageVisibility.message_id).filter_by(user_id=user_id).subquery()
-    messages = db.query(models.Message).filter(
-        models.Message.chat_id == chat_id,
-        ~models.Message.id.in_(hidden_ids)
-    ).order_by(models.Message.created_at.asc()).all()
-    return messages
+def get_filtered_messages(
+    db: Session,
+    chat_id: Optional[UUID],
+    group_id: Optional[UUID],
+    user_id: int,
+    search: Optional[str] = None,
+    type: Optional[str] = None
+) -> List[schemas.MessageResponse]:
+    subquery = db.query(models.MessageVisibility).filter(
+        models.MessageVisibility.message_id == models.Message.id,
+        models.MessageVisibility.user_id == user_id
+    )
 
+    if chat_id:
+        query = db.query(models.Message).filter(
+            models.Message.chat_id == chat_id,
+            models.Message.is_deleted_for_all == False,
+            ~subquery.exists()
+        )
+    elif group_id:
+        query = db.query(models.Message).filter(
+            models.Message.group_id == group_id,
+            models.Message.is_deleted_for_all == False
+        )
+    else:
+        raise HTTPException(status_code=400, detail="chat_id or group_id is required")
+
+    if type:
+        query = query.filter(models.Message.message_type == type)
+    if search:
+        query = query.filter(models.Message.content.ilike(f"%{search}%"))
+
+    messages = query.order_by(models.Message.created_at.asc()).all()
+    return [schemas.MessageResponse.model_validate(m, from_attributes=True) for m in messages]
+
+
+def forward_message(
+    db: Session,
+    original_message_id: UUID,
+    sender_id: int,
+    target_chat_id: Optional[UUID] = None,
+    target_group_id: Optional[UUID] = None
+):
+    original = db.query(models.Message).filter_by(id=original_message_id).first()
+    if not original:
+        raise HTTPException(status_code=404, detail="Original message not found")
+
+    if target_chat_id:
+        message = models.Message(
+            chat_id=target_chat_id,
+            sender_id=sender_id,
+            content=original.content,
+            media_url=original.media_url,
+            message_type=original.message_type,
+            created_at=datetime.utcnow()
+        )
+    elif target_group_id:
+        member = db.query(models.GroupMember).filter_by(group_id=target_group_id, user_id=sender_id).first()
+        if not member:
+            raise HTTPException(status_code=403, detail="You are not a member of the group")
+        message = models.Message(
+            group_id=target_group_id,
+            sender_id=sender_id,
+            content=original.content,
+            media_url=original.media_url,
+            message_type=original.message_type,
+            created_at=datetime.utcnow()
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Target chat or group ID required")
+
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+    return message
+
+
+def handle_chat_user_action(db: Session, user_id: int, data: schemas.ChatUserActionRequest):
+    # Stub logic - can implement mute/block logic here
+    return {"message": f"Action '{data.action}' applied successfully"}
+
+# Create Notification
+def create_notification(db: Session, data: schemas.NotificationCreate):
+    notification = models.Notification(
+        id=uuid4(),
+        recipient_id=data.recipient_id,
+        type=data.type,
+        title=data.title,
+        message=data.message,
+        link=data.link,
+        created_at=datetime.utcnow(),
+        is_read=False
+    )
+    db.add(notification)
+    db.commit()
+    db.refresh(notification)
+    return notification
+
+# Get Notifications for a User
+def get_user_notifications(db: Session, user_id: int):
+    return db.query(models.Notification).filter_by(recipient_id=user_id).order_by(models.Notification.created_at.desc()).all()
+
+# Mark Notification as Read
+def mark_as_read(db: Session, notification_id: UUID, user_id: int):
+    notif = db.query(models.Notification).filter_by(id=notification_id, recipient_id=user_id).first()
+    if not notif:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    notif.is_read = True
+    db.commit()
+    return {"message": "Notification marked as read"}
+
+# Mark All as Read
+def mark_all_as_read(db: Session, user_id: int):
+    db.query(models.Notification).filter_by(recipient_id=user_id, is_read=False).update({"is_read": True})
+    db.commit()
+    return {"message": "All notifications marked as read"}
+
+# Delete a Notification
+def delete_notification(db: Session, notification_id: UUID, user_id: int):
+    notif = db.query(models.Notification).filter_by(id=notification_id, recipient_id=user_id).first()
+    if not notif:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    db.delete(notif)
+    db.commit()
+    return {"message": "Notification deleted successfully"}

@@ -9,7 +9,9 @@ from dotenv import load_dotenv
 import os
 import secrets
 import uuid
-
+from fastapi import Request, HTTPException, status
+from jose import jwt, JWTError  # Or whatever library you're using
+# from app.config import settings  # Assuming you have secret in settings
 
 from .database import get_db
 from .models import User
@@ -136,3 +138,17 @@ def get_optional_current_user(token: Optional[str] = Depends(oauth2_scheme), db:
         return user
     except JWTError:
         return None
+
+def get_current_user_id_from_token(request: Request) -> int:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+
+    token = auth_header.split(" ")[1]
+
+    try:
+        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        user_id: int = int(payload.get("sub"))  # or 'user_id'
+        return user_id
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")

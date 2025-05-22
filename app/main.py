@@ -8,7 +8,7 @@ from .database import Base, engine, SessionLocal
 from app import models
 import uvicorn
 from .routes import profiles, connections
-from .routes import posts, chats
+from .routes import posts, chats, notifications
 
 
 # Create tables on startup (dev only)
@@ -37,6 +37,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def startup():
+    pass
+
 # Include routers
 app.include_router(country_code.router)  
 app.include_router(signup.router)
@@ -48,6 +52,7 @@ app.include_router(profiles.router)  # New profile router
 app.include_router(connections.router)  # New connections router
 app.include_router(posts.router)
 app.include_router(chats.router)
+app.include_router(notifications.router)
 
 @app.get("/")
 def read_root():

@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from .database import Base
 import uuid
 from uuid import uuid4
+from enum import Enum as PyEnum
 
 # -------------------- ENUM DEFINITIONS --------------------
 
@@ -68,6 +69,16 @@ class PostType(str, enum.Enum):
     CLIP = "clip"
     TAG = "tag"
     
+class MessageTypeEnum(str, enum.Enum):
+    text = "text"
+    emoji = "emoji"
+    image = "image"
+    audio = "audio"
+
+class GroupRole(str, Enum):
+    MEMBER = "member"
+    ADMIN = "admin"
+    
 # -------------------- USER MODEL --------------------
 
 class User(Base):
@@ -113,6 +124,10 @@ class User(Base):
     received_requests = relationship("ConnectionRequest", foreign_keys="ConnectionRequest.requestee_id", back_populates="requestee")
 
     posts = relationship("Post", back_populates="user")
+    created_groups = relationship("Group", back_populates="creator")
+    group_members = relationship("GroupMember", back_populates="user")
+    messages_sent = relationship("Message", back_populates="sender", cascade="all, delete-orphan")
+    notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
 
     @property
     def age(self):
@@ -120,8 +135,7 @@ class User(Base):
         return today.year - self.date_of_birth.year - (
             (today.month, today.day) < (self.date_of_birth.month, self.date_of_birth.day)
         )
-
-
+        
 # -------------------- OTP MODEL --------------------
 
 class OTP(Base):
@@ -259,22 +273,65 @@ class Chat(Base):
     user1 = relationship("User", foreign_keys=[user1_id])
     user2 = relationship("User", foreign_keys=[user2_id])
     
-    # ✅ Proper backref
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
 
+class ChatRequest(Base):
+    __tablename__ = "chat_requests"
 
-class MessageTypeEnum(str, enum.Enum):
-    text = "text"
-    emoji = "emoji"
-    image = "image"
-    audio = "audio"
+    id = Column(Integer, primary_key=True, index=True)
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    recipient_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String, default="pending")  # pending, accepted, declined
+    created_at = Column(DateTime, server_default=func.now())
 
+    sender = relationship("User", foreign_keys=[sender_id])
+    recipient = relationship("User", foreign_keys=[recipient_id])
+
+# -------------------- GROUP MODELS --------------------
+
+class Group(Base):
+    __tablename__ = "groups"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    name = Column(String, nullable=False, unique=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    creator_id = Column(Integer, ForeignKey("users.id"))
+
+    creator = relationship("User", back_populates="created_groups")
+    members = relationship("GroupMember", back_populates="group", cascade="all, delete-orphan")
+    messages = relationship("Message", back_populates="group", cascade="all, delete-orphan")
+
+class GroupMember(Base):
+    __tablename__ = "group_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(ForeignKey("groups.id"), nullable=False)
+    user_id = Column(ForeignKey("users.id"), nullable=False)
+
+    from sqlalchemy import Enum as SQLEnum
+
+    role = Column(
+        SQLEnum("member", "admin", name="group_role_enum"),
+        default="member",
+        nullable=False
+    )
+
+    joined_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    group = relationship("Group", back_populates="members")
+    user = relationship("User", back_populates="group_members")
+
+# -------------------- MESSAGES & INTERACTIONS --------------------
 
 class Message(Base):
     __tablename__ = "messages"
 
     id = Column(UUID(as_uuid=True), primary_key=True, index=True, default=uuid4)
-    chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id"))
+    
+    # Either chat_id (1-to-1) OR group_id (group chat)
+    chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id"), nullable=True)
+    group_id = Column(UUID(as_uuid=True), ForeignKey("groups.id"), nullable=True)
+
     sender_id = Column(Integer, ForeignKey("users.id"))
     content = Column(String, nullable=True)
     media_url = Column(String, nullable=True)
@@ -292,12 +349,13 @@ class Message(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     edited_at = Column(DateTime, nullable=True)
     is_deleted_for_all = Column(Boolean, default=False)
+    seen_at = Column(DateTime, nullable=True)
 
-    # ✅ Relationship fix
     chat = relationship("Chat", back_populates="messages")
+    group = relationship("Group", back_populates="messages")
+    sender = relationship("User", back_populates="messages_sent")
     reactions = relationship("Reaction", back_populates="message", cascade="all, delete-orphan")
     visibilities = relationship("MessageVisibility", back_populates="message", cascade="all, delete-orphan")
-
 
 class Reaction(Base):
     __tablename__ = "reactions"
@@ -310,7 +368,6 @@ class Reaction(Base):
     message = relationship("Message", back_populates="reactions")
     user = relationship("User")
 
-
 class MessageVisibility(Base):
     __tablename__ = "message_visibility"
 
@@ -320,4 +377,19 @@ class MessageVisibility(Base):
 
     message = relationship("Message", back_populates="visibilities")
     user = relationship("User")
+    
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title = Column(String, nullable=False)
+    body = Column(String, nullable=False)
+    type = Column(String, nullable=True)  # e.g., 'like', 'comment', 'message'
+    reference_id = Column(String, nullable=True)  # could be post_id, chat_id etc.
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="notifications")
+    
 

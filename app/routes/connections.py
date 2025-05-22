@@ -13,26 +13,33 @@ router = APIRouter(
     tags=["connections"]
 )
 
-@router.post("/request", response_model=schemas.ConnectionRequestResponse)
+def get_user_id_by_username(db: Session, username: str) -> int:
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if not user:
+        raise ValueError("User not found")
+    return user.id
+
+@router.post("/request", response_model=schemas.ConnectionSuccessResponse)
 def send_connection_request(
     request: schemas.ConnectionRequestCreate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
     try:
-        result = crud.handle_connection_request_logic(db, current_user.username, request.requestee_username)
+        success = crud.create_connection_request(
+            db, requester_id=current_user.id, requestee_id=get_user_id_by_username(db, request.requestee_username)
+        )
 
-        if isinstance(result, dict) and "message" in result:
-            # Explicitly return JSONResponse for the simple message
-            return JSONResponse(content=result)
+        if not success:
+            raise HTTPException(status_code=409, detail="Connection request already exists.")
 
-        # Return full schema for pending connection
-        return result
+        return {"message": "Connection request sent successfully."}
 
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
     
-@router.post("/{request_id}/respond", response_model=schemas.MessageResponse)
+@router.post("/{request_id}/respond", response_model=schemas.ConnectionSuccessResponse)
 def respond_to_connection_request(
     request_id: int,
     update: schemas.ConnectionRequestUpdate,

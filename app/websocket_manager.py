@@ -37,3 +37,23 @@ class ConnectionManager:
 
     def is_online(self, user_id: int) -> bool:
         return user_id in self.active_connections
+
+class NotificationWebSocketManager:
+    def __init__(self):
+        self.active_connections: Dict[int, WebSocket] = {}
+
+    async def connect(self, user_id: int, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections[user_id] = websocket
+
+    def disconnect(self, user_id: int):
+        self.active_connections.pop(user_id, None)
+
+    async def send_notification(self, user_id: int, data: dict):
+        if user_id in self.active_connections:
+            websocket = self.active_connections[user_id]
+            await websocket.send_json(data)
+
+    async def broadcast(self, data: dict):
+        for ws in self.active_connections.values():
+            await ws.send_json(data)
