@@ -65,11 +65,13 @@ async def get_user_profile_by_username(
             updated_at=db_profile.updated_at,
         )
 
+    if crud.is_blocked_relation(db, current_user.id, db_user.id):
+        raise HTTPException(status_code=404, detail="User not found or blocked")
+
     return schemas.UserProfilePublicResponse(**base_data)
 
-@router.put("/by-username/{username}", response_model=UserProfileResponse)
-async def update_user_profile_by_username(
-    profile_update: schemas.UserProfileUpdate,
+@router.get("/by-username/{username}", response_model=UserProfilePublicResponse)
+async def get_user_profile_by_username(
     username: str,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -78,45 +80,47 @@ async def update_user_profile_by_username(
     if not db_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if db_user.id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
-
     db_profile = crud.get_user_profile(db, db_user.id)
-
     if not db_profile:
-        if not profile_update.username or not profile_update.display_name:
-            raise HTTPException(status_code=400, detail="Username and display name are required")
+        raise HTTPException(status_code=404, detail="Profile not found")
 
-        # ✅ Auto-fetch location from country code during creation only
-        country_data = CountryPhoneData()
-        location_name = country_data.get_country_data(str(db_user.country_code)).get("country", None)
+    # Blocked user cannot see blocker's profile
+    if crud.is_blocked_relation(db, db_user.id, current_user.id):
+        # If current_user is blocked by db_user → hide profile
+        raise HTTPException(status_code=404, detail="User not found")
 
-        create_data = schemas.UserProfileCreate(
-            username=profile_update.username,
-            display_name=profile_update.display_name,
-            bio=profile_update.bio,
-            profile_image_url=profile_update.profile_image_url,
-            location=location_name
+    # 👤 Blocker CAN view the blocked user (no restriction)
+
+    # Compute stats
+    age = db_user.age
+    connection_count = db.query(models.Connection).filter(
+        (models.Connection.user_id1 == db_user.id) |
+        (models.Connection.user_id2 == db_user.id)
+    ).count()
+    post_count = db.query(models.Post).filter(models.Post.user_id == db_user.id).count()
+
+    base_data = {
+        "id": db_profile.id,
+        "username": db_profile.username,
+        "display_name": db_profile.display_name,
+        "profile_image_url": db_profile.profile_image_url,
+        "location": db_profile.location,
+        "age": age,
+        "connection_count": connection_count,
+        "post_count": post_count
+    }
+
+    if db_user.id == current_user.id or crud.check_users_connected(db, current_user.id, db_user.id):
+        return schemas.UserProfileResponse(
+            **base_data,
+            bio=db_profile.bio,
+            user_id=db_profile.user_id,
+            created_at=db_profile.created_at,
+            updated_at=db_profile.updated_at,
         )
-        return crud.create_user_profile(db, create_data, db_user.id)
 
-    try:
-        updated_profile = crud.update_user_profile(db, profile_update, db_user.id)
-    except ValueError as ve:
-        raise HTTPException(status_code=400, detail=str(ve))
+    return schemas.UserProfilePublicResponse(**base_data)
 
-    return schemas.UserProfileResponse(
-        id=updated_profile.id,
-        username=updated_profile.username,
-        display_name=updated_profile.display_name,
-        profile_image_url=updated_profile.profile_image_url,
-        age=db_user.age,
-        location=updated_profile.location,
-        bio=updated_profile.bio,
-        user_id=updated_profile.user_id,
-        created_at=updated_profile.created_at,
-        updated_at=updated_profile.updated_at,
-    )
 
 @router.put("/upload-profile-image", response_model=UserProfileResponse, summary="Upload or change profile image")
 async def upload_profile_image(

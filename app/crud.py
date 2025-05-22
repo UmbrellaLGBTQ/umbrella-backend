@@ -4,11 +4,12 @@ from datetime import datetime, timedelta, date
 from typing import List, Optional
 
 from . import models, schemas, auth
-from .models import RefreshToken, UserProfile, PostType
+from .models import RefreshToken, UserProfile, PostType, User, BlockedUser
 import uuid
 from uuid import uuid4, UUID
 from .schemas import CountryPhoneData, MessageResponse
 from fastapi import HTTPException
+from fastapi import HTTPException, status
 
 # -------------------- USER GETTERS --------------------
 
@@ -410,6 +411,10 @@ def handle_connection_request_logic(db: Session, requester_username: str, reques
 
     requester = db.query(User).filter(User.username == requester_username).first()
     requestee = db.query(User).filter(User.username == requestee_username).first()
+    
+    if is_blocked_relation(db, requester.id, requestee.id):
+        raise ValueError("Cannot connect with blocked user")
+
 
     if not requester or not requestee:
         raise ValueError("Invalid requester or requestee username")
@@ -463,6 +468,10 @@ def get_users_by_phone(db: Session, phone_number: str):
     ).all()
 
 def create_or_get_chat(db: Session, user_id: int, target_user_id: int) -> models.Chat:
+    
+    if is_blocked_relation(db, user_id, target_user_id):
+        raise ValueError("Cannot create a chat with blocked user")
+
     if user_id == target_user_id:
         raise ValueError("Cannot create a chat with yourself")
 
@@ -745,3 +754,82 @@ def delete_notification(db: Session, notification_id: UUID, user_id: int):
     db.delete(notif)
     db.commit()
     return {"message": "Notification deleted successfully"}
+
+def is_blocked_relation(db: Session, user_a_id: int, user_b_id: int) -> bool:
+    return db.query(BlockedUser).filter(
+        or_(
+            and_(BlockedUser.blocker_id == user_a_id, BlockedUser.blocked_id == user_b_id),
+            and_(BlockedUser.blocker_id == user_b_id, BlockedUser.blocked_id == user_a_id)
+        )
+    ).first() is not None
+
+def search_profiles_by_name_or_username(db: Session, query: str, limit: int, offset: int, user_id: int):
+    blocked_pairs = db.query(BlockedUser).filter(
+        or_(
+            BlockedUser.blocker_id == user_id,
+            BlockedUser.blocked_id == user_id
+        )
+    ).all()
+
+    excluded_ids = set()
+    for pair in blocked_pairs:
+        excluded_ids.add(pair.blocked_id)
+        excluded_ids.add(pair.blocker_id)
+
+    search = f"%{query.lower()}%"
+    return (
+        db.query(UserProfile)
+        .filter(
+            ~UserProfile.user_id.in_(excluded_ids),
+            or_(
+                UserProfile.username.ilike(search),
+                UserProfile.display_name.ilike(search)
+            )
+        )
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+
+def block_user(db: Session, blocker_id: int, blocked_user: User):
+    existing = db.query(BlockedUser).filter_by(blocker_id=blocker_id, blocked_id=blocked_user.id).first()
+    if existing:
+        return existing
+
+    # Create the block record
+    blocked = BlockedUser(blocker_id=blocker_id, blocked_id=blocked_user.id)
+    db.add(blocked)
+    db.commit()
+    db.refresh(blocked)
+
+    # Remove connection if one exists
+    connection = db.query(models.Connection).filter(
+        or_(
+            and_(models.Connection.user_id1 == blocker_id, models.Connection.user_id2 == blocked_user.id),
+            and_(models.Connection.user_id2 == blocker_id, models.Connection.user_id1 == blocked_user.id),
+        )
+    ).first()
+
+    if connection:
+        db.delete(connection)
+        db.commit()
+
+    return blocked
+
+
+def unblock_user(db: Session, blocker_id: UUID, blocked_user: User):
+    record = db.query(BlockedUser).filter_by(blocker_id=blocker_id, blocked_id=blocked_user.id).first()
+    if record:
+        db.delete(record)
+        db.commit()
+    return record
+
+def get_blocked_user_ids(db: Session, user_id: int):
+    rows = db.query(BlockedUser.blocked_id).filter_by(blocker_id=user_id).all()
+    return [r[0] for r in rows]
+
+def get_blocked_users(db: Session, user_id: int):
+    blocked_ids = get_blocked_user_ids(db, user_id)
+    return db.query(User).filter(User.id.in_(blocked_ids)).all()
+

@@ -290,7 +290,6 @@ class UserModel(BaseModel):
         return result.formatted_number
     
 
-
 # ---- Base Models ---- #
 class OTPBase(BaseModel):
     country_code: str
@@ -1011,6 +1010,26 @@ class GroupResponse(BaseModel):
 
     class Config:
         from_attributes = True
+        
+class UserProfileOut(BaseModel):
+    username: str
+    display_name: str
+    profile_image_url: str | None = None
+
+    class Config:
+        from_attributes = True  # Pydantic v2
+        
+class BlockRequest(BaseModel):
+    blocked_username: str  # username to be blocked
+
+class BlockedUserOut(BaseModel):
+    username: str
+    first_name: str
+    last_name: str
+
+    class Config:
+        from_attributes = True
+
 
 class GroupMemberResponse(BaseModel):
     user_id: int

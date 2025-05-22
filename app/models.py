@@ -393,3 +393,16 @@ class Notification(Base):
     user = relationship("User", back_populates="notifications")
     
 
+
+class BlockedUser(Base):
+    __tablename__ = "blocked_users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    blocker_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    blocked_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("blocker_id", "blocked_id", name="uq_block_relation"),)
+
+
+    
