@@ -48,12 +48,13 @@ app.include_router(login.router)
 app.include_router(oauth.router)
 app.include_router(forget_password.router)
 app.include_router(profiles.router)  # New profile router
-app.include_router(connections.router)  # New connections router
+app.include_router(connections.router)
 app.include_router(posts.router)
 app.include_router(chats.router)
+app.include_router(notifications.router)
 app.include_router(search.router)
 app.include_router(block.router)
-app.include_router(notifications.router)
+
 
 @app.get("/")
 def read_root():
